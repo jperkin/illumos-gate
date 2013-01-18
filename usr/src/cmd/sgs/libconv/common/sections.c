@@ -31,6 +31,7 @@
 #include	<sys/param.h>
 #include	<sys/elf_SPARC.h>
 #include	<sys/elf_amd64.h>
+#include	<sys/elf_ARM.h>
 #include	<_conv.h>
 #include	<sections_msg.h>
 
@@ -243,6 +244,35 @@ sec_type_strings(conv_iter_osabi_t osabi, Half mach, Conv_fmt_flags_t fmt_flags)
 	static const conv_ds_msg_t ds_amd64_nf = {
 	    CONV_DS_MSG_INIT(SHT_AMD64_UNWIND, amd64_nf) };
 
+	/* arm procesor range */
+	static const Msg arm_def[] = {
+		MSG_SHT_ARM_EXIDX, MSG_SHT_ARM_PREEMPTMAP,
+		MSG_SHT_ARM_ATTRIBUTES, MSG_SHT_ARM_DEBUGOVERLAY,
+		MSG_SHT_ARM_OVERLAYSECTION
+	};
+	static const Msg arm_dmp[] = {
+		MSG_SHT_ARM_EXIDX_DMP, MSG_SHT_ARM_PREEMPTMAP_DMP,
+		MSG_SHT_ARM_ATTRIBUTES_DMP, MSG_SHT_ARM_DEBUGOVERLAY_DMP,
+		MSG_SHT_ARM_OVERLAYSECTION_DMP
+	};
+	static const Msg arm_cf[] = {
+		MSG_SHT_ARM_EXIDX_CF, MSG_SHT_ARM_PREEMPTMAP_CF,
+		MSG_SHT_ARM_ATTRIBUTES_CF, MSG_SHT_ARM_DEBUGOVERLAY_CF,
+		MSG_SHT_ARM_OVERLAYSECTION_CF
+	};
+	static const Msg arm_nf[] = {
+		MSG_SHT_ARM_EXIDX_NF, MSG_SHT_ARM_PREEMPTMAP_NF,
+		MSG_SHT_ARM_ATTRIBUTES_NF, MSG_SHT_ARM_DEBUGOVERLAY_NF,
+		MSG_SHT_ARM_OVERLAYSECTION_NF
+	};
+	static const conv_ds_msg_t ds_arm_def = {
+	    CONV_DS_MSG_INIT(SHT_ARM_EXIDX, arm_def) };
+	static const conv_ds_msg_t ds_arm_dmp = {
+	    CONV_DS_MSG_INIT(SHT_ARM_EXIDX, arm_dmp) };
+	static const conv_ds_msg_t ds_arm_cf = {
+	    CONV_DS_MSG_INIT(SHT_ARM_EXIDX, arm_cf) };
+	static const conv_ds_msg_t ds_arm_nf = {
+	    CONV_DS_MSG_INIT(SHT_ARM_EXIDX, arm_nf) };
 
 	static const conv_ds_t	*retarr[MAX_RET];
 	int			retndx = 0;
@@ -333,6 +363,23 @@ sec_type_strings(conv_iter_osabi_t osabi, Half mach, Conv_fmt_flags_t fmt_flags)
 			break;
 		default:
 			retarr[retndx++] = CONV_DS_ADDR(ds_amd64_def);
+			break;
+		}
+	}
+
+	if (mach == EM_ARM) {
+		switch (CONV_TYPE_FMT_ALT(fmt_flags)) {
+		case CONV_FMT_ALT_DUMP:
+			retarr[retndx++] = CONV_DS_ADDR(ds_arm_dmp);
+			break;
+		case CONV_FMT_ALT_CF:
+			retarr[retndx++] = CONV_DS_ADDR(ds_arm_cf);
+			break;
+		case CONV_FMT_ALT_NF:
+			retarr[retndx++] = CONV_DS_ADDR(ds_arm_nf);
+			break;
+		default:
+			retarr[retndx++] = CONV_DS_ADDR(ds_arm_def);
 			break;
 		}
 	}

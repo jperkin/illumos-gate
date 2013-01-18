@@ -37,6 +37,8 @@ extern "C" {
 #include <sys/elf_386.h>
 #elif defined(__sparc)
 #include <sys/elf_SPARC.h>
+#elif defined(__arm)
+#include <sys/elf_ARM.h>
 #endif
 #ifndef	_ASM
 #include <sys/types.h>

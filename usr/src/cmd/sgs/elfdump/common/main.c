@@ -127,6 +127,7 @@ failure(const char *file, const char *func)
 static void
 detail_usage()
 {
+	(void) fprintf(stderr, MSG_INTL(MSG_USAGE_DETAIL0));
 	(void) fprintf(stderr, MSG_INTL(MSG_USAGE_DETAIL1));
 	(void) fprintf(stderr, MSG_INTL(MSG_USAGE_DETAIL2));
 	(void) fprintf(stderr, MSG_INTL(MSG_USAGE_DETAIL3));
@@ -752,6 +753,9 @@ main(int argc, char **argv, char **envp)
 	opterr = 0;
 	while ((var = getopt(argc, argv, MSG_ORIG(MSG_STR_OPTIONS))) != EOF) {
 		switch (var) {
+		case 'a':
+			flags |= FLG_SHOW_ATTRIBUTES;
+			break;
 		case 'C':
 			flags |= FLG_CTL_DEMANGLE;
 			break;

@@ -945,6 +945,7 @@ file path=usr/include/sys/edonr.h
 file path=usr/include/sys/efi_partition.h
 file path=usr/include/sys/elf.h
 file path=usr/include/sys/elf_386.h
+file path=usr/include/sys/elf_ARM.h
 file path=usr/include/sys/elf_SPARC.h
 file path=usr/include/sys/elf_amd64.h
 file path=usr/include/sys/elf_notes.h

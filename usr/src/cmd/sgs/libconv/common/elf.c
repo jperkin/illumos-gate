@@ -32,6 +32,7 @@
 #include	"_conv.h"
 #include	"elf_msg.h"
 #include	<sys/elf_SPARC.h>
+#include	<sys/elf_ARM.h>
 
 
 
@@ -847,10 +848,125 @@ conv_iter_ehdr_vers(Conv_fmt_flags_t fmt_flags, conv_iter_cb_t func,
 }
 
 static void
-conv_ehdr_sparc_flags_strings(Conv_fmt_flags_t fmt_flags,
-    const conv_ds_msg_t **mm_msg, const Val_desc **flag_desc)
+conv_ehdr_arm_flags_strings(Conv_fmt_flags_t fmt_flags,
+    const conv_ds_vd_t **mm_msg, const Val_desc **flag_desc)
 {
-#define	EFLAGSZ	CONV_EXPN_FIELD_DEF_PREFIX_SIZE + \
+	/*
+	 * XXXARM: We assume all the EABI ver strings are the same size, we
+	 * shouldn't
+	 */
+#define	ARM_EFLAGSZ CONV_EXPN_FIELD_DEF_PREFIX_SIZE +	\
+	    MSG_EF_ARM_EABI_VER1_CF_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_RELEXEC_CF_SIZE		+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_HASENTRY_CF_SIZE		+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_INTERWORK_CF_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_APCS_26_CF_SIZE		+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_APCS_FLOAT_CF_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_PIC_CF_SIZE		+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_ALIGN8_CF_SIZE		+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_NEW_ABI_CF_SIZE		+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_OLD_ABI_CF_SIZE		+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_ABI_FLOAT_SOFT_CF_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_ABI_FLOAT_HARD_CF_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_MAVERICK_FLOAT_CF_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_LE8_CF_SIZE		+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    MSG_EF_ARM_BE8_CF_SIZE		+ CONV_EXPN_FIELD_DEF_SEP_SIZE +	\
+	    CONV_INV_BUFSIZE + CONV_EXPN_FIELD_DEF_SUFFIX_SIZE
+
+	/*
+	 * Ensure that Conv_ehdr_flags_buf_t is large enough:
+	 *
+	 * ARM_EFLAGSZ is the real minimum size of the buffer required by
+	 * conv_ehdr_flags(). However, Conv_ehdr_flags_buf_t uses
+	 * CONV_EHDR_FLAG_BUFSIZE to set the buffer size. We do things
+	 * this way because the definition of ARM_EFLAGSZ uses information
+	 * that is not available in the environment of other programs
+	 * that include the conv.h header file.
+	 */
+#if (CONV_EHDR_FLAGS_BUFSIZE < ARM_EFLAGSZ) && !defined(__lint)
+#define	REPORT_BUFSIZE ARM_EFLAGSZ
+#include "report_bufsize.h"
+#error "CONV_EHDR_FLAGS_BUFSIZE is too small for ARM_EFLAGSZ"
+#endif
+
+	static const Val_desc eabi_flags_cf[] = {
+		{ EF_ARM_EABI_VER1, MSG_EF_ARM_EABI_VER1_CF },
+		{ EF_ARM_EABI_VER2, MSG_EF_ARM_EABI_VER2_CF },
+		{ EF_ARM_EABI_VER3, MSG_EF_ARM_EABI_VER3_CF },
+		{ EF_ARM_EABI_VER4, MSG_EF_ARM_EABI_VER4_CF },
+		{ EF_ARM_EABI_VER5, MSG_EF_ARM_EABI_VER5_CF },
+		{ 0 },
+	};
+
+	static const Val_desc eabi_flags_nf[] = {
+		{ EF_ARM_EABI_VER1, MSG_EF_ARM_EABI_VER1_NF },
+		{ EF_ARM_EABI_VER2, MSG_EF_ARM_EABI_VER2_NF },
+		{ EF_ARM_EABI_VER3, MSG_EF_ARM_EABI_VER3_NF },
+		{ EF_ARM_EABI_VER4, MSG_EF_ARM_EABI_VER4_NF },
+		{ EF_ARM_EABI_VER5, MSG_EF_ARM_EABI_VER5_NF },
+		{ 0 },
+	};
+
+	static const conv_ds_vd_t ds_eabi_flags_cf = {
+		CONV_DS_VD, EF_ARM_EABI_VER1, EF_ARM_EABI_VER5, eabi_flags_cf
+	};
+	static const conv_ds_vd_t ds_eabi_flags_nf = {
+		CONV_DS_VD, EF_ARM_EABI_VER1, EF_ARM_EABI_VER5, eabi_flags_nf
+	};
+
+	static const Val_desc vda_cf[] = {
+		{ EF_ARM_RELEXEC,		MSG_EF_ARM_RELEXEC_CF },
+		{ EF_ARM_HASENTRY,		MSG_EF_ARM_HASENTRY_CF },
+		{ EF_ARM_INTERWORK,		MSG_EF_ARM_INTERWORK_CF },
+		{ EF_ARM_APCS_26,		MSG_EF_ARM_APCS_26_CF },
+		{ EF_ARM_APCS_FLOAT,		MSG_EF_ARM_APCS_FLOAT_CF },
+		{ EF_ARM_PIC,			MSG_EF_ARM_PIC_CF },
+		{ EF_ARM_ALIGN8,		MSG_EF_ARM_ALIGN8_CF },
+		{ EF_ARM_NEW_ABI,		MSG_EF_ARM_NEW_ABI_CF },
+		{ EF_ARM_OLD_ABI,		MSG_EF_ARM_OLD_ABI_CF },
+		{ EF_ARM_ABI_FLOAT_SOFT,	MSG_EF_ARM_ABI_FLOAT_SOFT_CF },
+		{ EF_ARM_ABI_FLOAT_HARD,	MSG_EF_ARM_ABI_FLOAT_HARD_CF },
+		{ EF_ARM_MAVERICK_FLOAT,	MSG_EF_ARM_MAVERICK_FLOAT_CF },
+		{ EF_ARM_LE8,			MSG_EF_ARM_LE8_CF },
+		{ EF_ARM_BE8,			MSG_EF_ARM_BE8_CF },
+		{ 0 }
+	};
+
+	static const Val_desc vda_nf[] = {
+		{ EF_ARM_RELEXEC,		MSG_EF_ARM_RELEXEC_NF },
+		{ EF_ARM_HASENTRY,		MSG_EF_ARM_HASENTRY_NF },
+		{ EF_ARM_INTERWORK,		MSG_EF_ARM_INTERWORK_NF },
+		{ EF_ARM_APCS_26,		MSG_EF_ARM_APCS_26_NF },
+		{ EF_ARM_APCS_FLOAT,		MSG_EF_ARM_APCS_FLOAT_NF },
+		{ EF_ARM_PIC,			MSG_EF_ARM_PIC_NF },
+		{ EF_ARM_ALIGN8,		MSG_EF_ARM_ALIGN8_NF },
+		{ EF_ARM_NEW_ABI,		MSG_EF_ARM_NEW_ABI_NF },
+		{ EF_ARM_OLD_ABI,		MSG_EF_ARM_OLD_ABI_NF },
+		{ EF_ARM_ABI_FLOAT_SOFT,	MSG_EF_ARM_ABI_FLOAT_SOFT_NF },
+		{ EF_ARM_ABI_FLOAT_HARD,	MSG_EF_ARM_ABI_FLOAT_HARD_NF },
+		{ EF_ARM_MAVERICK_FLOAT,	MSG_EF_ARM_MAVERICK_FLOAT_NF },
+		{ EF_ARM_LE8,			MSG_EF_ARM_LE8_NF },
+		{ EF_ARM_BE8,			MSG_EF_ARM_BE8_NF },
+		{ 0 }
+	};
+
+	switch (CONV_TYPE_FMT_ALT(fmt_flags)) {
+	default:
+		*mm_msg = &ds_eabi_flags_cf;
+		*flag_desc = vda_cf;
+		break;
+	case CONV_FMT_ALT_NF:
+		*mm_msg = &ds_eabi_flags_nf;
+		*flag_desc = vda_nf;
+		break;
+	}
+}
+
+static void
+conv_ehdr_sparc_flags_strings(Conv_fmt_flags_t fmt_flags,
+    const conv_ds_vd_t **mm_msg, const Val_desc **flag_desc)
+{
+#define	SPARC_EFLAGSZ	CONV_EXPN_FIELD_DEF_PREFIX_SIZE + \
 	MSG_EF_SPARCV9_TSO_CF_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE +  \
 	MSG_EF_SPARC_SUN_US1_CF_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE +  \
 	MSG_EF_SPARC_HAL_R1_CF_SIZE	+ CONV_EXPN_FIELD_DEF_SEP_SIZE +  \
@@ -860,31 +976,36 @@ conv_ehdr_sparc_flags_strings(Conv_fmt_flags_t fmt_flags,
 	/*
 	 * Ensure that Conv_ehdr_flags_buf_t is large enough:
 	 *
-	 * EFLAGSZ is the real minimum size of the buffer required by
+	 * SPARC_EFLAGSZ is the real minimum size of the buffer required by
 	 * conv_ehdr_flags(). However, Conv_ehdr_flags_buf_t uses
 	 * CONV_EHDR_FLAG_BUFSIZE to set the buffer size. We do things
-	 * this way because the definition of EFLAGSZ uses information
+	 * this way because the definition of SPARC_EFLAGSZ uses information
 	 * that is not available in the environment of other programs
 	 * that include the conv.h header file.
 	 */
-#if (CONV_EHDR_FLAGS_BUFSIZE != EFLAGSZ) && !defined(__lint)
+#if (CONV_EHDR_FLAGS_BUFSIZE < SPARC_EFLAGSZ) && !defined(__lint)
 #define	REPORT_BUFSIZE EFLAGSZ
 #include "report_bufsize.h"
-#error "CONV_EHDR_FLAGS_BUFSIZE does not match EFLAGSZ"
+#error "CONV_EHDR_FLAGS_BUFSIZE is too small for SPARC_EFLAGSZ"
 #endif
 
-	static const Msg mm_flags_cf[] = {
-		MSG_EF_SPARCV9_TSO_CF,	MSG_EF_SPARCV9_PSO_CF,
-		MSG_EF_SPARCV9_RMO_CF
+	static const Val_desc mm_flags_cf[] = {
+		{ EF_SPARCV9_TSO, MSG_EF_SPARCV9_TSO_CF },
+		{ EF_SPARCV9_PSO, MSG_EF_SPARCV9_PSO_CF },
+		{ EF_SPARCV9_RMO, MSG_EF_SPARCV9_RMO_CF },
+		{ 0 }
 	};
-	static const Msg mm_flags_nf[] = {
-		MSG_EF_SPARCV9_TSO_NF,	MSG_EF_SPARCV9_PSO_NF,
-		MSG_EF_SPARCV9_RMO_NF
+	static const Val_desc mm_flags_nf[] = {
+		{ EF_SPARCV9_TSO, MSG_EF_SPARCV9_TSO_NF },
+		{ EF_SPARCV9_PSO, MSG_EF_SPARCV9_PSO_NF },
+		{ EF_SPARCV9_RMO, MSG_EF_SPARCV9_RMO_NF },
+		{ 0 }
 	};
-	static const conv_ds_msg_t ds_mm_flags_cf = {
-		CONV_DS_MSG_INIT(EF_SPARCV9_TSO, mm_flags_cf) };
-	static const conv_ds_msg_t ds_mm_flags_nf = {
-		CONV_DS_MSG_INIT(EF_SPARCV9_TSO, mm_flags_nf) };
+
+	static const conv_ds_vd_t ds_mm_flags_cf = {
+		CONV_DS_VD, EF_SPARCV9_TSO, EF_SPARCV9_RMO, mm_flags_cf };
+	static const conv_ds_vd_t ds_mm_flags_nf = {
+		CONV_DS_VD, EF_SPARCV9_TSO, EF_SPARCV9_RMO, mm_flags_nf };
 
 
 	static const Val_desc vda_cf[] = {
@@ -922,31 +1043,39 @@ conv_ehdr_flags(Half mach, Word flags, Conv_fmt_flags_t fmt_flags,
     Conv_ehdr_flags_buf_t *flags_buf)
 {
 	static const char *leading_str_arr[2];
-	static CONV_EXPN_FIELD_ARG conv_arg = {
-	    NULL, sizeof (flags_buf->buf), leading_str_arr };
-
 	const char **lstr;
-	const conv_ds_msg_t	*mm_msg;
+	const conv_ds_vd_t	*mm_msg;
 	const Val_desc		*vdp;
 	Word			mm;
-
-	/*
-	 * Non-SPARC architectures presently provide no known flags.
-	 */
-	if ((mach != EM_SPARCV9) && (((mach != EM_SPARC) &&
-	    (mach != EM_SPARC32PLUS)) || (flags == 0)))
-		return (conv_invalid_val(&flags_buf->inv_buf, flags,
-		    CONV_FMT_DECIMAL));
+	const conv_ds_t		*search[] = { NULL, NULL };
+	CONV_EXPN_FIELD_ARG 	conv_arg = {
+		.bufsize = sizeof (flags_buf->buf),
+		.lead_str = leading_str_arr,
+	};
 
 	conv_arg.buf = flags_buf->buf;
-	conv_ehdr_sparc_flags_strings(fmt_flags, &mm_msg, &vdp);
 	conv_arg.oflags = conv_arg.rflags = flags;
-
-	mm = flags & EF_SPARCV9_MM;
 	lstr = leading_str_arr;
-	if ((mach == EM_SPARCV9) && (mm <= mm_msg->ds_topval)) {
-		*lstr++ = MSG_ORIG(mm_msg->ds_msg[mm]);
-		conv_arg.rflags &= ~EF_SPARCV9_MM;
+	if (mach == EM_ARM) {
+		conv_ehdr_arm_flags_strings(fmt_flags, &mm_msg, &vdp);
+		mm = (flags & EF_ARM_EABI_MASK);
+		search[0] = CONV_DS_ADDR(*mm_msg);
+		*lstr++ = conv_map_ds(ELFOSABI_NONE, EM_NONE, mm,
+		    search, fmt_flags, &flags_buf->inv_buf);
+		conv_arg.rflags &= ~EF_ARM_EABI_MASK;
+	} else if ((mach == EM_SPARCV9) || (mach == EM_SPARC) ||
+	    (mach == EM_SPARC32PLUS)) {
+		conv_ehdr_sparc_flags_strings(fmt_flags, &mm_msg, &vdp);
+		search[0] = CONV_DS_ADDR(*mm_msg);
+		if ((mach == EM_SPARCV9)) {
+			mm = flags & EF_SPARCV9_MM;
+			*lstr++ = conv_map_ds(ELFOSABI_NONE, EM_NONE, mm,
+			    search, fmt_flags, &flags_buf->inv_buf);
+			conv_arg.rflags &= ~EF_SPARCV9_MM;
+		}
+	} else {
+		return (conv_invalid_val(&flags_buf->inv_buf, flags,
+		    CONV_FMT_DECIMAL));
 	}
 	*lstr = NULL;
 
@@ -959,18 +1088,16 @@ conv_iter_ret_t
 conv_iter_ehdr_flags(Half mach, Conv_fmt_flags_t fmt_flags, conv_iter_cb_t func,
     void *uvalue)
 {
+	const Val_desc		*vdp;
+	const conv_ds_t		*ds[2];
+	const conv_ds_vd_t	*ds_vd;
 
 	if ((mach == EM_SPARCV9) || (mach == EM_SPARC) ||
 	    (mach == EM_SPARC32PLUS) || (mach == CONV_MACH_ALL)) {
-		const conv_ds_msg_t	*ds_msg_mm;
-		const Val_desc		*vdp;
-
-		conv_ehdr_sparc_flags_strings(fmt_flags, &ds_msg_mm, &vdp);
+		conv_ehdr_sparc_flags_strings(fmt_flags, &ds_vd, &vdp);
 
 		if (mach == EM_SPARCV9) {
-			const conv_ds_t *ds[2];
-
-			ds[0] = CONV_DS_ADDR(ds_msg_mm);
+			ds[0] = CONV_DS_ADDR(*ds_vd);
 			ds[1] = NULL;
 
 			if (conv_iter_ds(ELFOSABI_NONE, mach, ds,
@@ -978,7 +1105,21 @@ conv_iter_ehdr_flags(Half mach, Conv_fmt_flags_t fmt_flags, conv_iter_cb_t func,
 				return (CONV_ITER_DONE);
 		}
 
-		return (conv_iter_vd(vdp, func, uvalue));
+		if (conv_iter_vd(vdp, func, uvalue) == CONV_ITER_DONE)
+			return (CONV_ITER_DONE);
+	}
+
+	if ((mach == EM_ARM) || (mach == CONV_MACH_ALL)) {
+		conv_ehdr_arm_flags_strings(fmt_flags, &ds_vd, &vdp);
+		ds[0] = CONV_DS_ADDR(*ds_vd);
+		ds[1] = NULL;
+
+		if (conv_iter_ds(ELFOSABI_NONE, mach, ds,
+		    func, uvalue) == CONV_ITER_DONE)
+			return (CONV_ITER_DONE);
+
+		if (conv_iter_vd(vdp, func, uvalue) == CONV_ITER_DONE)
+			return (CONV_ITER_DONE);
 	}
 
 	return (CONV_ITER_CONT);

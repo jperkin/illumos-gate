@@ -29,8 +29,11 @@
  */
 #include	<stdio.h>
 #include	<string.h>
+#define	ELF_TARGET_ARM
+#include	<sys/elf.h>
 #include	<_conv.h>
 #include	<phdr_msg.h>
+
 
 static const conv_ds_t **
 conv_phdr_type_strings(Conv_fmt_flags_t fmt_flags)
@@ -38,6 +41,7 @@ conv_phdr_type_strings(Conv_fmt_flags_t fmt_flags)
 #define	ALL	ELFOSABI_NONE, EM_NONE
 #define	SOL	ELFOSABI_SOLARIS, EM_NONE
 #define	LIN	ELFOSABI_LINUX, EM_NONE
+#define	ARM	ELFOSABI_NONE, EM_ARM
 
 	static const Msg	phdrs_def[] = {
 		MSG_PT_NULL,			MSG_PT_LOAD,
@@ -82,7 +86,6 @@ error "PT_NUM has grown. Update phdrs[]"
 	    CONV_DS_MSG_INIT(PT_NULL, phdrs_cfnp) };
 	static const conv_ds_msg_t ds_phdrs_nf = {
 	    CONV_DS_MSG_INIT(PT_NULL, phdrs_nf) };
-
 
 	static const Val_desc2 phdrs_osabi_def[] = {
 		{ PT_SUNWBSS,		SOL,	MSG_PT_SUNWBSS },
@@ -143,6 +146,7 @@ error "PT_NUM has grown. Update phdrs[]"
 #if PT_LOSUNW != PT_SUNWBSS
 #error "PT_LOSUNW has grown. Update phdrs_osabi[]"
 #endif
+
 	static const conv_ds_vd2_t ds_phdrs_osabi_def = {
 	    CONV_DS_VD2, PT_LOOS, PT_HIOS, phdrs_osabi_def };
 	static const conv_ds_vd2_t ds_phdrs_osabi_cf = {
@@ -152,22 +156,53 @@ error "PT_NUM has grown. Update phdrs[]"
 	static const conv_ds_vd2_t ds_phdrs_osabi_nf = {
 	    CONV_DS_VD2, PT_LOOS, PT_HIOS, phdrs_osabi_nf };
 
+	static const Val_desc2 phdrs_mach_def[] = {
+	    { PT_ARM_ARCHEXT,	ARM, MSG_PT_ARM_ARCHEXT },
+	    { PT_ARM_EXIDX,	ARM, MSG_PT_ARM_EXIDX },
+	    { 0 },
+	};
+	static const Val_desc2 phdrs_mach_cf[] = {
+	    { PT_ARM_ARCHEXT,	ARM, MSG_PT_ARM_ARCHEXT_CF },
+	    { PT_ARM_EXIDX,	ARM, MSG_PT_ARM_EXIDX_CF },
+	};
+	static const Val_desc2 phdrs_mach_cfnp[] = {
+	    { PT_ARM_ARCHEXT,	ARM, MSG_PT_ARM_ARCHEXT_CFNP },
+	    { PT_ARM_EXIDX,	ARM, MSG_PT_ARM_EXIDX_CFNP },
+	};
+	static const Val_desc2 phdrs_mach_nf[] = {
+	    { PT_ARM_ARCHEXT,	ARM, MSG_PT_ARM_ARCHEXT_NF },
+	    { PT_ARM_EXIDX,	ARM, MSG_PT_ARM_EXIDX_NF },
+	};
+
+	static const conv_ds_vd2_t ds_phdrs_mach_def = {
+	    CONV_DS_VD2, PT_LOPROC, PT_HIPROC, phdrs_mach_def };
+	static const conv_ds_vd2_t ds_phdrs_mach_cf = {
+	    CONV_DS_VD2, PT_LOPROC, PT_HIPROC, phdrs_mach_cf };
+	static const conv_ds_vd2_t ds_phdrs_mach_cfnp = {
+	    CONV_DS_VD2, PT_LOPROC, PT_HIPROC, phdrs_mach_cfnp };
+	static const conv_ds_vd2_t ds_phdrs_mach_nf = {
+	    CONV_DS_VD2, PT_LOPROC, PT_HIPROC, phdrs_mach_nf };
 
 	/* Build NULL terminated return arrays for each string style */
 	static const conv_ds_t	*ds_def[] = {
 		CONV_DS_ADDR(ds_phdrs_def), CONV_DS_ADDR(ds_phdrs_osabi_def),
+		CONV_DS_ADDR(ds_phdrs_mach_def),
 		NULL };
 	static const conv_ds_t	*ds_dmp[] = {
 		CONV_DS_ADDR(ds_phdrs_dmp), CONV_DS_ADDR(ds_phdrs_osabi_cfnp),
+		CONV_DS_ADDR(ds_phdrs_mach_cfnp),
 		NULL };
 	static const conv_ds_t	*ds_cf[] = {
 		CONV_DS_ADDR(ds_phdrs_cf), CONV_DS_ADDR(ds_phdrs_osabi_cf),
+		CONV_DS_ADDR(ds_phdrs_mach_cf),
 		NULL };
 	static const conv_ds_t	*ds_cfnp[] = {
 		CONV_DS_ADDR(ds_phdrs_cfnp), CONV_DS_ADDR(ds_phdrs_osabi_cfnp),
+		CONV_DS_ADDR(ds_phdrs_mach_cfnp),
 		NULL };
 	static const conv_ds_t	*ds_nf[] = {
 		CONV_DS_ADDR(ds_phdrs_nf), CONV_DS_ADDR(ds_phdrs_osabi_nf),
+		CONV_DS_ADDR(ds_phdrs_mach_nf),
 		NULL };
 
 	/* Select the strings to use */
@@ -187,6 +222,7 @@ error "PT_NUM has grown. Update phdrs[]"
 #undef ALL
 #undef SOL
 #undef LIN
+#undef ARM
 }
 
 const char *

@@ -117,8 +117,8 @@ typedef union {
 } Conv_inv_buf_t;
 
 /* conv_ehdr_flags() */
-#define	CONV_EHDR_FLAGS_BUFSIZE		91
-typedef union {
+#define	CONV_EHDR_FLAGS_BUFSIZE		267
+typedef struct {
 	Conv_inv_buf_t			inv_buf;
 	char				buf[CONV_EHDR_FLAGS_BUFSIZE];
 } Conv_ehdr_flags_buf_t;
@@ -795,6 +795,8 @@ extern	const char	*_conv_map_ds(uchar_t, Half, Conv_elfvalue_t,
 /*
  * Generic formatting interfaces.
  */
+extern	const char	*conv_arm_tag(uint_t, Conv_fmt_flags_t,
+    Conv_inv_buf_t *);
 extern	const char	*conv_bnd_obj(uint_t, Conv_bnd_obj_buf_t *);
 extern	const char	*conv_bnd_type(uint_t, Conv_bnd_type_buf_t *);
 extern	const char	*conv_config_feat(int, Conv_config_feat_buf_t *);
@@ -906,6 +908,8 @@ extern	const char	*conv_reloc_type(Half, Word, Conv_fmt_flags_t,
 			    Conv_inv_buf_t *);
 extern	const char	*conv_reloc_type_static(Half, Word, Conv_fmt_flags_t);
 extern	const char	*conv_reloc_386_type(Word, Conv_fmt_flags_t,
+			    Conv_inv_buf_t *);
+extern	const char	*conv_reloc_arm_type(Word, Conv_fmt_flags_t,
 			    Conv_inv_buf_t *);
 extern	const char	*conv_reloc_amd64_type(Word, Conv_fmt_flags_t,
 			    Conv_inv_buf_t *);

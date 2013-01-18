@@ -18,7 +18,7 @@ elfdump \- dumps selected parts of an object file
 .SH SYNOPSIS
 .LP
 .nf
-\fBelfdump\fR [\fB-cCdegGhHiklmnPrsSuvy\fR] [\fB-p | -w file\fR] [\fB-I\fR \fIindex-expr\fR]
+\fBelfdump\fR [\fB-acCdegGhHiklmnPrsSuvy\fR] [\fB-p | -w file\fR] [\fB-I\fR \fIindex-expr\fR]
      [\fB-N\fR \fIname\fR] [\fB-O\fR \fIosabi\fR] [\fB-T\fR \fItype\fR] \fIfilename\fR...
 .fi
 
@@ -95,6 +95,15 @@ and Libraries Guide\fR.
 .SH OPTIONS
 .LP
 The following options are supported:
+.sp
+.ne 2
+.na
+\fB-a\fR
+.ad
+.RS 18n
+Dumps the contents of ARM attributes sections
+.RE
+
 .sp
 .ne 2
 .na

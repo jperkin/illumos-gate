@@ -34,6 +34,7 @@ ROOTHDRS=	dlfcn.h \
 		link.h
 
 SYSHDRS=	sys/elf.h \
+		sys/elf_ARM.h \
 		sys/elf_386.h \
 		sys/elf_SPARC.h \
 		sys/elf_notes.h \

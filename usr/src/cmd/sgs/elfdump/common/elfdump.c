@@ -33,6 +33,7 @@
  */
 #include	<stddef.h>
 #include	<sys/elf_386.h>
+#include	<sys/elf_ARM.h>
 #include	<sys/elf_amd64.h>
 #include	<sys/elf_SPARC.h>
 #include	<_libelf.h>
@@ -2729,6 +2730,17 @@ reloc(Cache *cache, Word shnum, Ehdr *ehdr, const char *file)
 					if ((reltype != R_AMD64_NONE) &&
 					    (reltype != R_AMD64_RELATIVE))
 						badrel++;
+				} else if (mach == EM_ARM) {
+					/*
+					 * AEABI 4.6.1.8 talks of
+					 * BASE_PREL/BASE_ABS also being
+					 * valid
+					 */
+					if ((reltype != R_ARM_NONE) &&
+					    (reltype != R_ARM_RELATIVE) &&
+					    (reltype != R_ARM_BASE_PREL) &&
+					    (reltype != R_ARM_BASE_ABS))
+						badrel++;
 				}
 
 				if (badrel) {
@@ -5219,6 +5231,10 @@ regular(const char *file, int fd, Elf *elf, uint_t flags,
 			case SHT_AMD64_UNWIND:
 				flags |= FLG_SHOW_UNWIND;
 				break;
+
+			case SHT_ARM_ATTRIBUTES:
+				flags |= FLG_SHOW_ATTRIBUTES;
+				break;
 			}
 		}
 	}
@@ -5302,6 +5318,9 @@ regular(const char *file, int fd, Elf *elf, uint_t flags,
 	    ((osabi == ELFOSABI_SOLARIS) || (osabi == ELFOSABI_LINUX)))
 		unwind(cache, shnum, phnum, ehdr, osabi, file, elf, flags);
 
+	if ((flags & FLG_SHOW_ATTRIBUTES) && (ehdr->e_machine == EM_ARM))
+		dump_arm_attributes(cache, shnum, file,
+		    _elf_sys_encoding() != ehdr->e_ident[EI_DATA]);
 
 	/* Release the memory used to cache section headers */
 done:
