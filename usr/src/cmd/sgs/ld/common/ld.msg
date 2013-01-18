@@ -68,5 +68,6 @@
 
 @ MSG_SUNW_OST_SGS	"SUNW_OST_SGS"
 
+@ MSG_TARG_ARM		"arm"
 @ MSG_TARG_SPARC	"sparc"
 @ MSG_TARG_X86		"x86"

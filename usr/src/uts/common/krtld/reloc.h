@@ -78,6 +78,16 @@ extern "C" {
 #define	reloc_table		reloc32_table_sparc
 #endif
 
+#elif	defined(DO_RELOC_LIBLD_ARM)
+
+#define	DO_RELOC_LIBLD
+#if	defined(_ELF64)
+#error	"XXXARM: Surely this shouldn't ever happen?"
+#else
+#define	do_reloc_ld		do32_reloc_ld_arm
+#define	reloc_table		reloc32_table_arm
+#endif
+
 #else				/* rtld */
 
 #if	defined(_ELF64)

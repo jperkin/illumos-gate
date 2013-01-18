@@ -1003,6 +1003,7 @@ extern Boolean		ld_sym_reducable(Ofl_desc *, Sym_desc *);
 extern uintptr_t	ld_sym_spec(Ofl_desc *);
 
 extern Target		ld_targ;
+extern const Target	*ld_targ_init_arm(void);
 extern const Target	*ld_targ_init_sparc(void);
 extern const Target	*ld_targ_init_x86(void);
 

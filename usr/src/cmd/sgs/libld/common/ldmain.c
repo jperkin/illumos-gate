@@ -125,6 +125,10 @@ ld_init_target(Lm_list *lml, Half mach)
 		ld_targ = *ld_targ_init_sparc();
 		break;
 
+	case EM_ARM:
+		ld_targ = *ld_targ_init_arm();
+		break;
+
 	default:
 		{
 			Conv_inv_buf_t	inv_buf;

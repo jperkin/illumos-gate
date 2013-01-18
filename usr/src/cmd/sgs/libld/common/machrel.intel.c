@@ -290,7 +290,7 @@ ld_perform_outreloc(Rel_desc * orsp, Ofl_desc * ofl, Boolean *remain_seen)
 	} else if (orsp->rel_flags & FLG_REL_BSS) {
 		/*
 		 * This must be a R_386_COPY.  For these set the roffset to
-		 * point to the new symbols location.
+		 * point to the new symbol's location.
 		 */
 		osp = ofl->ofl_isbss->is_osdesc;
 		roffset = (Word)value;
@@ -829,7 +829,7 @@ ld_do_activerelocs(Ofl_desc *ofl)
 		else if (ELF_ST_TYPE(sdp->sd_sym->st_info) == STT_SECTION) {
 			/*
 			 * The value for a symbol pointing to a SECTION
-			 * is based off of that sections position.
+			 * is based off of that section's position.
 			 */
 			if (sdp->sd_isc->is_flags & FLG_IS_RELUPD) {
 				Sym_desc	*sym;

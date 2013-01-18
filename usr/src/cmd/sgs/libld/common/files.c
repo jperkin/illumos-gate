@@ -33,6 +33,7 @@
 
 #define	ELF_TARGET_AMD64
 #define	ELF_TARGET_SPARC
+#define	ELF_TARGET_ARM
 
 #include	<stdio.h>
 #include	<string.h>
@@ -1439,6 +1440,19 @@ process_progbits_alloc(const char *name, Ifl_desc *ifl, Shdr *shdr,
 
 	if (name[0] == '.') {
 		switch (name[1]) {
+		/*
+		 * XXXARM: We want to sort like .eh_frame, but not
+		 * _be_ .eh_frame, because we don't understand a damn
+		 * thing about ARM unwinding.
+		 */
+		case 'A':
+			if (!is_name_cmp(name, MSG_ORIG(MSG_SCN_ARMEXTAB),
+			    MSG_SCN_ARMEXTAB_SIZE))
+				break;
+
+			*ident = ld_targ.t_id.id_unwind;
+			done = TRUE;
+			break;
 		case 'e':
 			if (!is_name_cmp(name, MSG_ORIG(MSG_SCN_EHFRAME),
 			    MSG_SCN_EHFRAME_SIZE))
@@ -2760,22 +2774,19 @@ process_elf(Ifl_desc *ifl, Elf *elf, Ofl_desc *ofl)
 				    ld_targ.t_id.id_gotdata, ofl) == S_ERROR)
 					return (S_ERROR);
 				break;
-#if	defined(_ELF64)
+			/* case SHT_ARM_EXIDX: */
 			case SHT_AMD64_UNWIND:
-				/*
-				 * SHT_AMD64_UNWIND (0x70000001) is in the
-				 * SHT_LOPROC - SHT_HIPROC range reserved
-				 * for processor-specific semantics. It is
-				 * only meaningful for amd64 targets.
-				 */
-				if (ld_targ.t_m.m_mach != EM_AMD64)
-					goto do_default;
+				if (ld_targ.t_m.m_mach == EM_AMD64) {
+					/*
+					 * SHT_AMD64_UNWIND (0x70000001) is in
+					 * the SHT_LOPROC - SHT_HIPROC range
+					 * reserved for processor-specific
+					 * semantics. It is only meaningful
+					 * for amd64 targets.
+					 */
+					if (column != 0)
+						break;
 
-				/*
-				 * Target is x86, so this really is
-				 * SHT_AMD64_UNWIND
-				 */
-				if (column == 0) {
 					/*
 					 * column == ET_REL
 					 */
@@ -2785,9 +2796,26 @@ process_elf(Ifl_desc *ifl, Elf *elf, Ofl_desc *ofl)
 						return (S_ERROR);
 					ifl->ifl_isdesc[ndx]->is_flags |=
 					    FLG_IS_EHFRAME;
+				} else if (ld_targ.t_m.m_mach == EM_ARM) {
+					if (column != 0)
+						break;
+
+					if (process_section(name, ifl, shdr,
+					    scn, ndx, ld_targ.t_id.id_unknown,
+					    ofl) == S_ERROR)
+						return (S_ERROR);
+
+					/*
+					 * XXXARM: We don't set FLG_IS_EHFRAME
+					 * because while this is unwind
+					 * related crud, it's not _the same_
+					 * unwind related crud, and we don't
+					 * have the faintest idea how to
+					 * process it, we just want the
+					 * sections to sort properly.
+					 */
 				}
 				break;
-#endif
 			default:
 			do_default:
 				if (process_section(name, ifl, shdr, scn, ndx,

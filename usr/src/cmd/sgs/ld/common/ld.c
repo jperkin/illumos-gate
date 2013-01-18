@@ -334,6 +334,10 @@ getmore:
 				    MSG_ORIG(MSG_TARG_X86)) == 0) {
 					mach32 = EM_386;
 					mach64 = EM_AMD64;
+				} else if (strcasecmp(pstr,
+				    MSG_ORIG(MSG_TARG_ARM)) == 0) {
+					mach32 = EM_ARM;
+					mach64 = EM_NONE;
 				} else {
 					eprintf(0, ERR_FATAL,
 					    MSG_INTL(MSG_ERR_BADTARG), pstr);

@@ -34,7 +34,7 @@
 #endif
 #include	<stdio.h>
 #include	"sgs.h"
-#include	"machdep.h"
+#include	<i386/machdep_x86.h>
 #include	"libld.h"
 #include	"reloc.h"
 #include	"conv.h"

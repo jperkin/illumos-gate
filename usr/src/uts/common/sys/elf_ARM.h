@@ -158,6 +158,8 @@ extern "C" {
 
 #define	R_ARM_NUM			141
 
+#define	ELF_ARM_MAXPGSZ	0x08000
+
 #define	EF_ARM_EABI_MASK	0xff000000 /* ABI version */
 #define	EF_ARM_EABI_VER1	0x01000000
 #define	EF_ARM_EABI_VER2	0x02000000
@@ -249,6 +251,33 @@ extern "C" {
 #define	ARM_TAG_CONFORMANCE			67	/* char* */
 #define	ARM_TAG_VIRTUALIZATION_USE		68	/* uleb128 */
 #define	ARM_TAG_MPEXTENSION_USE_2		70	/* uleb128 (now #42) */
+
+/*
+ * There are consumers of this file that want to include elf defines for
+ * all architectures.  This is a problem for the defines below, because
+ * while they are architecture specific they have common names.  Hence to
+ * prevent attempts to redefine these variables we'll check if any of
+ * the other elf architecture header files have been included.  If
+ * they have then we'll just stick with the existing definitions.
+ */
+#if !defined(_SYS_ELF_MACH_COMMON)
+#define	_SYS_ELF_MACH_COMMON
+#define	_SYS_ELF_MACH_ARM
+
+#define	M_PLT_ENTSIZE	12	/* PLT entry size in bytes */
+#define	M_PLT_INSSIZE	4	/* Size of each PLT insn */
+#define	M_PLT_ALIGN	4	/* PLT is word aligned, since it's ARM code */
+
+#define	M_PLT_XNumber	1	/* 1 reserved PLT entry, PLT[0] */
+#define	M_PLT_RESERVSZ	20	/* plt[0] is 5 insns, rather than the usual 3 */
+
+#define	M_GOT_XNumber	3	/* 3 reserved got entries */
+#define	M_GOT_XDYNAMIC	0	/* got[0] == _DYNAMIC */
+#define	M_GOT_XLINKMAP	1	/* got[1] == link map */
+#define	M_GOT_XRTLD	2	/* got[2] == rtbinder */
+#define	M_GOT_ENTSIZE	4
+#define	M_WORD_ALIGN	4
+#endif
 
 #ifdef __cplusplus
 }
