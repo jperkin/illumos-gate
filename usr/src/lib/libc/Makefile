@@ -147,7 +147,9 @@ lib64:	$(MACH_COMP) $(MACHLIBS64) $(MACH64)/$(LIB_PIC) $(VARIANTLIBS64)
 		exit 1; \
 	fi
 
-$(MACH)/assym.h $(MACH64)/assym.h:
+ASSYMS= $(MACH)/assym.h
+$(BUILD64)ASSYMS += $(MACH64)/assym.h
+$(ASSYMS):
 	@cd $(@D); $(MAKE) assym.h
 
 $(VARIANTLIBS): FRC
@@ -173,7 +175,7 @@ inslib64:	$(ROOTFS_LIBS64) $(ROOTFS_LINKS64) $(ROOTVARIANTLIBS64)
 
 install_h: all_h $(ROOTHDRS)
 
-all_h:	$(MACH)/assym.h $(MACH64)/assym.h
+all_h:	$(ASSYMS)
 
 check:	$(CHECKHDRS)
 

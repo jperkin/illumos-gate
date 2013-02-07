@@ -62,7 +62,8 @@ $(ROOTDEMODIRS) :=	DIRMODE =	755
 
 
 
-SUBDIRS=	$(MACH)
+SUBDIRS=		$(MACH)
+$(BUILD64)SUBDIRS +=	$(MACH64)
 
 all:=		TARGET=	all
 install:=	TARGET=	install
@@ -82,9 +83,6 @@ package install : \
 
 $(SUBDIRS):	FRC
 		@cd $@; pwd; $(MAKE) $(TARGET)
-		@if [ -d $(MACH64) ]; then                      \
-			cd $(MACH64); pwd; $(MAKE) $(TARGET);   \
-		else /bin/true; fi
 
 $(ROOTDEMODIRS):
 	$(INS.dir)

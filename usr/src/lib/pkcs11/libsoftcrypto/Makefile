@@ -26,7 +26,8 @@
 include		$(SRC)/lib/Makefile.lib
 
 CAPDIR =	capabilities
-SUBDIRS =	$(MACH) $(BUILD64) $(MACH64) $(PLATFORMS)
+SUBDIRS =		$(MACH) $(PLATFORMS)
+$(BUILD64)SUBDIRS +=	$(MACH64)
 
 all :=		TARGET= all
 clean :=	TARGET= clean
