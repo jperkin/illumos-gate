@@ -27,8 +27,6 @@
 #ifndef	__ELFWRAP_H
 #define	__ELFWRAP_H
 
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
-
 /*
  * Local include file for elfwrap.
  */
@@ -99,6 +97,7 @@ extern	void	target_init_sparc(TargDesc_t *);
 extern	void	target_init_sparcv9(TargDesc_t *);
 extern	void	target_init_i386(TargDesc_t *);
 extern	void	target_init_amd64(TargDesc_t *);
+extern	void	target_init_arm(TargDesc_t *);
 #endif
 
 #ifdef	__cplusplus

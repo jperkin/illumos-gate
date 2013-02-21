@@ -23,7 +23,6 @@
  * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
 
 #include	<_elfwrap.h>
 
@@ -45,6 +44,10 @@
 #else
 #define	target_init	target_init_sparc
 #endif
+#endif
+#if	defined(ELFWRAP_ARM)
+#include	<arm/machdep_arm.h>
+#define	target_init	target_init_arm
 #endif
 #endif
 

@@ -34,7 +34,8 @@ include		$(SRC)/cmd/sgs/Makefile.com
 COMOBJ =	main.o
 
 MACHOBJ =	machine.sparc.o	machine.sparcv9.o \
-		machine.i386.o	machine.amd64.o
+		machine.i386.o	machine.amd64.o \
+		machine.arm.o
 
 COMOBJ32 =	elfwrap32.o
 

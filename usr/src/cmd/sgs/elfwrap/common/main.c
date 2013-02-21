@@ -23,7 +23,6 @@
  * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
 
 /*
  * Wrap data in an elf file.
@@ -138,7 +137,9 @@ main(int argc, char **argv, char **envp)
 				mach = EM_AMD64;
 			else
 				mach = EM_386;
-
+		} else if (strcasecmp(pstr, MSG_ORIG(MSG_TARG_ARM)) == 0) {
+			/* XXXARM: 64 */
+			mach = EM_ARM;
 		} else {
 			(void) fprintf(stderr, MSG_INTL(MSG_ARG_BADTARG), prog,
 			    pstr);

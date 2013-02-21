@@ -58,6 +58,10 @@
 		$(COMPILE.c) -DELFWRAP_X86 -D_ELF64 -o $@ $<
 		$(POST_PROCESS_O)
 
+%.arm.o:	../common/%.c
+		$(COMPILE.c) -DELFWRAP_ARM -o $@ $<
+		$(POST_PROCESS_O)
+
 $(PROG):	$(OBJS) $(MAPFILES)
 		$(LINK.c) -o $@ $(OBJS) $(LDLIBS)
 		$(POST_PROCESS)

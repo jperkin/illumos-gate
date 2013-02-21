@@ -23,7 +23,6 @@
  * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  */
-#pragma ident	"%Z%%M%	%I%	%E% SMI"
 
 #include	<sys/types.h>
 #include	<sys/stat.h>
@@ -243,6 +242,9 @@ output(const char *prog, int fd, const char *ofile, ushort_t mach,
 			break;
 		case EM_AMD64:
 			target_init_amd64(&tdesc);
+			break;
+		case EM_ARM:
+			target_init_arm(&tdesc);
 			break;
 #else
 		default:
