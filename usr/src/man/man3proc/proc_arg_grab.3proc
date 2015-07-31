@@ -124,6 +124,8 @@ and
 .Xr Pgrab_core 3PROC .
 .Pp
 The
+.Fn proc_arg_grab
+and
 .Fn proc_arg_xgrab
 function will fail if:
 .Bl -tag -width Er

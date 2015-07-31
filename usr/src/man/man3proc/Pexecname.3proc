@@ -51,7 +51,7 @@ function returns the value of
 .Fa buf ,
 and up to
 .Fa buflen
-of
+bytes of
 .Fa buf
 are filled in with a null-terminated path.
 Otherwise,

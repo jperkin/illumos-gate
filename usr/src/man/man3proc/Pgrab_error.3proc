@@ -33,7 +33,7 @@ describes the error that occurred. The
 function only knows how to translate errors that were returned from a
 failed call to
 .Xr Pgrab 3PROC ,
-.Xr Pfgrab_core ,
+.Xr Pfgrab_core 3PROC ,
 .Xr Pgrab_core 3PROC ,
 and
 .Xr Pgrab_file 3PROC ,

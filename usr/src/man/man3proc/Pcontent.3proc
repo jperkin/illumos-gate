@@ -16,7 +16,7 @@
 .Os
 .Sh NAME
 .Nm Pcontent
-.Nd obtain process content types available
+.Nd obtain available process content types
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h

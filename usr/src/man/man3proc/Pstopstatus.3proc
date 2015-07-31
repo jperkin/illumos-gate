@@ -202,8 +202,11 @@ The
 .Fn Pdstop ,
 .Fn Pstopstatus ,
 .Fn Pstop ,
+.Fn Pwait ,
+.Fn Ldstop ,
+.Fn Lstop ,
 and
-.Fn Pwait
+.Fn Lwait
 functions will fail if:
 .Bl -tag -width Er
 .It Er EAGAIN

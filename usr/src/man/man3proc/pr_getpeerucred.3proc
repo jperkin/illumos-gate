@@ -52,12 +52,12 @@ See
 .Xr getpeerucred 3C
 for the full description and purpose of the
 .Sy getpeerucred
-system call and its arguments.
+library call and its arguments.
 .Pp
 The
 .Fn pr_getpeerucred
 function only works on active processes. Process handles that correspond
-to core files, zombie processes, or ELF objects do not support system
+to core files, zombie processes, or ELF objects do not support library
 call injection.
 .Sh RETURN VALUES
 Upon successful completion, the
@@ -70,7 +70,7 @@ is returned and
 .Sy errno
 is set to
 .Er ENOSYS
-to indicate that the system call could not be injected.
+to indicate that the library call could not be injected.
 .Sh ERRORS
 For a full list of possible errors see the
 .Sy ERRORS
@@ -83,11 +83,11 @@ function will fail if:
 .Bl -tag -width Er
 .It Er ENOSYS
 An error occurred while trying to invoke the agent LWP and inject a
-system call in the process handle
+library call in the process handle
 .Fa P
 or the process handle
 .Fa P
-does not support system call injection.
+does not support library call injection.
 .El
 .Sh INTERFACE STABILITY
 .Sy Committed
