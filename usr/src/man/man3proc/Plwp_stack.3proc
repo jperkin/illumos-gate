@@ -65,7 +65,7 @@ The
 and
 .Fn Plwp_main_stack
 functions obtain information about the size and address of the stacks
-for the thrad identified by
+for the thread identified by
 .Fa lwpid
 in the process handle
 .Fa P .
@@ -92,15 +92,15 @@ The
 .Fn Plwp_alt_stack
 function fills in
 .Fa stkp
-with the information about the thread's alternate stack, if its
+with the information about the thread's alternate stack, if it's
 configured.
 .Pp
 The
 .Fn Plwp_main_stack
 function fills in
 .Fa stkp
-with the information about the thread's main stack, regardless if there
-is an alternate stack or which it is executing one.
+with the information about the thread's main stack, regardless of if there
+is an alternate stack or it is executing one.
 .Pp
 Process handles that refer to files, obtained through
 .Xr Pgrab_file 3PROC ,

@@ -39,7 +39,7 @@ and is valid until a subsequent call to
 .Sh RETURN VALUES
 Upon successful completion, the
 .Fn Ppsinfo
-function returns a pointer to the process ps information. Otherwise
+function returns a pointer to the process ps information. Otherwise,
 .Dv NULL
 is returned to indicate that it could not be found.
 .Sh INTERFACE STABILITY

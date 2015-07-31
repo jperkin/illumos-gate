@@ -39,7 +39,7 @@ may be found in
 .Pp
 The returned auxiliary vector should not be used across any subsequent
 calls to
-.Xr libproc 3PROC .
+.Xr libproc 3LIB .
 .Sh RETURN VALUES
 Upon successful completion, the
 .Fn Pgetauxvec

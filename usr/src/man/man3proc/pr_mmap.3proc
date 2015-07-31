@@ -16,7 +16,7 @@
 .Os
 .Sh NAME
 .Nm pr_mmap
-.Nd inject mmap system call call into victim process
+.Nd inject mmap system call into victim process
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h
@@ -35,9 +35,9 @@ The
 .Fn pr_mmap
 function injects the
 .Xr mmap 2
-system call call into the target process specified by the process handle
+system call into the target process specified by the process handle
 .Fa P
-by means of the agent lwp.
+by means of the agent LWP.
 If the process handle
 .Fa P
 is the value
@@ -55,8 +55,8 @@ The arguments
 and
 .Fa off
 have the same meaning as in
-.Xr mmap 2 ,
-see
+.Xr mmap 2 .
+See
 .Xr mmap 2
 for the full description and purpose of the
 .Sy mmap
@@ -90,7 +90,7 @@ The
 function will fail if:
 .Bl -tag -width Er
 .It Er ENOSYS
-An error occurred while trying to invoke the agent lwp and inject a
+An error occurred while trying to invoke the agent LWP and inject a
 system call in the process handle
 .Fa P
 or the process handle

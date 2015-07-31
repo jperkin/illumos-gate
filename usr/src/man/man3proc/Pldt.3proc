@@ -17,13 +17,19 @@
 .Sh NAME
 .Nm Pldt ,
 .Nm proc_get_ldt
-.Nd Obtain process's local descriptor table
+.Nd obtain process' local descriptor table
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h
 .Ft int
 .Fo Pldt
 .Fa "struct ps_prochandle *P"
+.Fa "struct ssd *pldt"
+.Fa "int nldt"
+.Fc
+.Ft int
+.Fo proc_get_ldt
+.Fa "pid_t pid"
 .Fa "struct ssd *pldt"
 .Fa "int nldt"
 .Fc
@@ -88,7 +94,8 @@ or
 is zero, then no data will be written. Otherwise,
 .Sy -1
 is returned. The
-.Fn Pldt function sets
+.Fn Pldt
+function sets
 .Sy errno
 to indicate the error that occurred.
 .Sh ERRORS

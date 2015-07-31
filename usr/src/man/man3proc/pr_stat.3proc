@@ -75,7 +75,7 @@ and
 system calls respectively into the target process specified by the
 process handle
 .Fa P
-by means of the agent lwp.
+by means of the agent LWP.
 If the process handle
 .Fa P
 is the value
@@ -94,8 +94,8 @@ and
 to the
 .Fn pr_stat
 function have the same meaning as in
-.Xr stat 2 ,
-see
+.Xr stat 2 .
+See
 .Xr stat 2
 for the full description and purpose of the
 .Sy stat
@@ -176,7 +176,7 @@ The
 function will fail if:
 .Bl -tag -width Er
 .It Er ENOSYS
-An error occurred while trying to invoke the agent lwp and inject a
+An error occurred while trying to invoke the agent LWP and inject a
 system call in the process handle
 .Fa P
 or the process handle

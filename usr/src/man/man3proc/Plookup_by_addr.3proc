@@ -86,7 +86,7 @@ The
 function looks up symbol information corresponding to the address
 .Fa addr .
 If found, up to
-.Fa bufsize
+.Fa size
 bytes of the symbol's name, including the null terminator will be filled
 in to the buffer
 .Fa buf .
@@ -100,7 +100,7 @@ function, except that it also fills in the structure
 with additional information. The definition of the
 .Sy prsyminfo_t
 may be found in
-.Xr libproc 3PROC .
+.Xr libproc 3LIB .
 .Pp
 The
 .Fn Pxlookup_by_addr_resolved
@@ -178,7 +178,7 @@ and
 .Fn Pxlookup_by_name
 functions return
 .Sy 0
-and fill in the symbol information. Otherwise
+and fill in the symbol information. Otherwise,
 .Sy -1
 is returned to indicate that the symbol could not be found.
 .Sh INTERFACE STABILITY

@@ -46,7 +46,7 @@ The current privilege set for the process may be obtained through a call
 to
 .Xr Ppriv 3PROC .
 .Pp
-Note, the privilege set may only be updated for active processes.
+Note that the privilege set may only be updated for active processes.
 Process handles which correspond to core files, zombie processes, and
 files, may not have their privilege sets updated.
 .Sh RETURN VALUES
@@ -54,7 +54,7 @@ Upon successful completion, the
 .Fn Psetpriv
 function returns
 .Sy 0
-and updates the process's privilege sets. Otherwise,
+and updates the process' privilege sets. Otherwise,
 .Sy -1
 is returned and
 .Sy errno

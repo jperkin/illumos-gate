@@ -16,7 +16,7 @@
 .Os
 .Sh NAME
 .Nm pr_unlink
-.Nd inject unlink system call call into victim process
+.Nd inject unlink system call into victim process
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h
@@ -30,9 +30,9 @@ The
 .Fn pr_unlink
 function injects the
 .Xr unlink 2
-system call call into the target process specified by the process handle
+system call into the target process specified by the process handle
 .Fa P
-by means of the agent lwp.
+by means of the agent LWP.
 If the process handle
 .Fa P
 is the value
@@ -44,8 +44,8 @@ on the currently running process.
 The argument
 .Fa path
 has the same meaning as in
-.Xr unlink 2 ,
-see
+.Xr unlink 2 .
+See
 .Xr unlink 2
 for the full description and purpose of the
 .Sy unlink
@@ -79,7 +79,7 @@ The
 function will fail if:
 .Bl -tag -width Er
 .It Er ENOSYS
-An error occurred while trying to invoke the agent lwp and inject a
+An error occurred while trying to invoke the agent LWP and inject a
 system call in the process handle
 .Fa P
 or the process handle

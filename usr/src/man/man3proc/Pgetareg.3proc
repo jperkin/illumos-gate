@@ -57,10 +57,10 @@ to by
 .Fa P .
 .Pp
 The getting and setting of registers of the process operates on the
-representative thread (lwp). For more information on how the
+representative thread (LWP). For more information on how the
 representative is chosen, see
 .Xr proc 4 .
-To change the registers of a specific thread, see the
+To change the registers of a specific thread, use the
 .Xr Lgetareg 3PROC
 and
 .Xr Lsetareg 3PROC
@@ -99,7 +99,7 @@ functions are equivalent to the
 and
 .Fn Psetareg
 functions, except rather than operating on the process and its
-representative thraed, they instead operate on the thread handle
+representative thread, they instead operate on the thread handle
 .Fa L .
 .Sh RETURN VALUES
 Upon successful completion, the
@@ -133,7 +133,7 @@ value varies based on process architecture.
 .It Er EBUSY
 The handle
 .Fa P
-is not stopped nor a core file.
+is neither stopped nor a core file.
 .It Er ENODATA
 The handle
 .Fa P
@@ -172,7 +172,7 @@ in
 .Sh SEE ALSO
 .Xr errno 3C ,
 .Xr libproc 3LIB ,
-.Xr Lgrag 3PROC ,
+.Xr Lgrab 3PROC ,
 .Xr Pgrab_file 3PROC ,
 .Xr Pstop 3PROC ,
 .Xr proc 4

@@ -86,7 +86,7 @@ does not exist.
 .It Er G_STRANGE
 An unanticipated system error occurred while trying to grab the
 file
-.Fa fpath
+.Fa fname
 and create the handle.
 The value of
 .Sy errno
@@ -104,4 +104,4 @@ indicates the system failure.
 .Xr Pgrab_core 3PROC ,
 .Xr Pgrab_error 3PROC ,
 .Xr Pgrab_file 3PROC ,
-.Xr Preleae 3PROC
+.Xr Prelease 3PROC

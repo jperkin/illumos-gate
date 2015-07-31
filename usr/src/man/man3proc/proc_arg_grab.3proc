@@ -42,7 +42,7 @@ The
 .Fn proc_arg_grab
 and
 .Fn proc_arg_xgrab
-functions are utility functions which processes arguments which may be a
+functions are utility functions which process arguments pointing to a
 currently active process or a core file and returns a process handle to
 it.
 .Pp
@@ -51,13 +51,13 @@ The string
 contains the name of something to try and open. How it is interpreted
 depends on the value of
 .Fa oflag .
-The following values may be passed in as a bitwise-exclusive-or for
+The following values may be passed in as a bitwise-exclusive-OR for
 .Fa oflag :
 .Bl -tag -width Dv -offset indent
 .It Dv PR_ARG_PIDS
 Allows
 .Fa arg
-to specify process ids and /proc arguments.
+to specify process IDs and /proc arguments.
 .It Dv PR_ARG_CORES
 Allows
 .Fa arg
@@ -96,7 +96,7 @@ If the
 .Fa lwps
 argument is
 .Pf non- Dv NULL ,
-then if ther is a thread specification present in
+then if there is a thread specification present in
 .Fa arg ,
 it will be validated to see if it is a valid range and then a pointer to
 the start of the thread specification will be stored in

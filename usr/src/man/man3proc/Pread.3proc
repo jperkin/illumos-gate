@@ -42,7 +42,7 @@ function reads data from the process handle
 .Fa P
 starting at
 .Fa address
-in the process's address space and reads at most
+in the process' address space and reads at most
 .Fa nbyte
 of data into
 .Fa buf

@@ -36,7 +36,7 @@
 .Sh DESCRIPTION
 The
 .Fn Psetrun
-funciton resumes the stopped process handle
+function resumes the stopped process handle
 .Fa P
 and transitions the process to running.
 If
@@ -98,15 +98,14 @@ handles that refer to core files, zombie processes, and ELF objects.
 .Pp
 The
 .Fn Lsetrun
-functions is equivalent to the
+function is equivalent to the
 .Fn Psetrun
 function, except rather than operating on the process it instead
 operates on the thread handle
 .Fa L .
 A call to
 .Fn Lsetrun
-function will only cause the specified thread to resume execution rather
-than the
+function will only cause the specified thread to resume execution, whereas the
 .Fn Psetrun
 function will cause all threads in the process to resume.
 .Sh RETURN VALUES
@@ -130,8 +129,8 @@ section in
 The
 .Fn Psetrun
 and
-.Fn Lserun
-function will fail if:
+.Fn Lsetrun
+functions will fail if:
 .Bl -tag -width Er
 .It Er EBUSY
 The process handle

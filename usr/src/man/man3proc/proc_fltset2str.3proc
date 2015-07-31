@@ -57,7 +57,7 @@ functions respectively convert the fault, signal, and system call sets in
 .Fa sigset ,
 and
 .Fa sysset
-to a human readable name and place the corresponding string in
+to a human-readable name and place the corresponding string in
 .Fa buf .
 .Pp
 Up to

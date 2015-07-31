@@ -38,7 +38,7 @@ that already exist. For core files, instead use
 and to create processes, instead see
 .Xr Pcreate 3PROC .
 .Pp
-By default, when a process is stopped the following changes happen to
+By default, when a process is grabbed the following changes happen to
 it, unless values are passed in via
 .Fa flags
 to the contrary:
@@ -68,7 +68,7 @@ impact of stopping a process depends on the purpose of that process. For
 example, if one stops a process that's doing primarily computation, then
 the only major impact will be that it will be delayed during the entire
 time that it is stopped. However, if instead this is an active TCP
-server, then the accept backlog may fill causing connection errors and
+server, then the accept backlog may fill up, causing connection errors and
 potentially connection time out errors.
 .Pp
 In addition, special care must be taken to ensure that a stopped process
@@ -143,7 +143,7 @@ may leave a process stopped and interfere with the ability of other
 software to obtain a handle.
 .Ss Permissions
 Unprivileged users may grab and control their own processes only if both
-the user and group ids of the target process match those of the calling
+the user and group IDs of the target process match those of the calling
 process. In addition, the caller must have a super set of the target's
 privileges. Processes with the
 .Sy PRIV_PROC_OWNER
@@ -221,4 +221,4 @@ is a zombie and cannot be grabbed.
 .Xr Pgrab_core 3PROC ,
 .Xr Pgrab_error 3PROC ,
 .Xr Pgrab_file 3PROC ,
-.Xr Preleae 3PROC
+.Xr Prelease 3PROC

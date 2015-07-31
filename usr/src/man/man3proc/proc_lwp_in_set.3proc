@@ -52,7 +52,7 @@ More formally, the thread range may be described as:
 lwp_range[,lwp_range]*
 .Ed
 .Pp
-An lwp range may be specified as one of the following four strings. The
+An LWP range may be specified as one of the following four strings. The
 following table shows the string formats and the corresponding set of
 valid threads that match it:
 .Bl -column -offset indent ".Sy n-m" "n <= lwpid <= m"
@@ -64,7 +64,7 @@ valid threads that match it:
 .Pp
 For example, the thread range
 .Sy -2,4-5,7,8-
-matches thread with ids 0-2, 4-5, 7, and any thread id 8 or greater.
+matches thread with IDs 0-2, 4-5, 7, and any thread id 8 or greater.
 .Pp
 The
 .Fn proc_lwp_range_valid
@@ -95,7 +95,7 @@ to indicate
 .Fa lwpid
 is in
 .Fa set .
-Othewrise,
+Otherwise,
 .Sy 0
 is returned to indicate that
 .Fa lwpid
@@ -106,7 +106,7 @@ Upon successful completion, the
 .Fa proc_lwp_range_valid
 function returns
 .Sy 0
-to indciate
+to indicate
 .Fa set
 is valid. Otherwise,
 .Sy -1

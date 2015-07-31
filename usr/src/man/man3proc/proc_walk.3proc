@@ -79,7 +79,7 @@ The return value of the caller's
 .Fa func
 function determines whether or not iteration will continue. If
 .Fa func
-returns a non-zero value, then iteration will be terminate and that
+returns a non-zero value, then iteration will terminate and that
 return value will be returned to the caller. To distinguish between
 system errors and caller errors, it is recommended that the function
 only return positive integers in the event of an error.

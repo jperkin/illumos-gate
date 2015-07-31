@@ -48,7 +48,7 @@ functions lookup loaded object information from the process handle
 This information is provided by the run-time link-editor,
 .Xr ld.so.1 1 ,
 and provides information about the loaded object such as the link-map
-identifier, the TLS module ID, and the address of various sections.
+identifier, the Thread-Local Storage (TLS) module ID, and the address of various sections.
 .Pp
 The pointer to the data returned by the library will only be valid for
 as long as the handle

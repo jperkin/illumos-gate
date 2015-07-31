@@ -28,7 +28,7 @@
 The
 .Fn Pgrab_error
 function returns a pointer to a human-readable character string that
-describes the error the occurred. The
+describes the error that occurred. The
 .Fn Pgrab_error
 function only knows how to translate errors that were returned from a
 failed call to
@@ -36,7 +36,7 @@ failed call to
 .Xr Pfgrab_core ,
 .Xr Pgrab_core 3PROC ,
 and
-.Xr Pgrab_file 3PROC .
+.Xr Pgrab_file 3PROC ,
 that were stored in the function's
 .Fa perr
 argument.

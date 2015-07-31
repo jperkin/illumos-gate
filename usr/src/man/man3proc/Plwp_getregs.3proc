@@ -71,7 +71,7 @@ specified by
 The
 .Fn Plwp_setfpregs
 function updates the floating point registers of the thread specified by
-.Fa lwipd
+.Fa lwpid
 to the register state contained in
 .Fa fpregs .
 .Pp
@@ -96,13 +96,13 @@ individual threads. Processes may be stopped through functions such as
 .Xr Pstop 3PROC .
 The structures used for registers are described in
 .Xr proc 4
-and their defintions may be found in
+and their definitions may be found in
 .In sys/regset.h .
 The definitions of these structures varies based on the architecture of
 the system and the running process.
 .Pp
 One may not set the register values of a process that is not an active
-process, eg. a process handle that refers to a file or a core file.
+process, e.g. a process handle that refers to a file or a core file.
 .Sh RETURN VALUES
 Upon successful completion, the
 .Fn Plwp_getregs ,
@@ -139,7 +139,7 @@ is not currently stopped.
 .It Er ENOENT
 There is no thread in
 .Fa P
-that with id
+with id
 .Fa lwpid .
 .El
 .Sh INTERFACE STABILITY

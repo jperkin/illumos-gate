@@ -53,11 +53,11 @@ Upon successful completion, the
 .Fn Pplatform
 function returns
 .Fa buffer .
-Otherwise
+Otherwise,
 .Dv NULL
 is returned,
 .Sy errno
-is set and
+is set, and
 .Fa buffer
 is not updated.
 .Sh ERRORS
@@ -69,7 +69,7 @@ function will fail if:
 .Fa P
 refers to a core file and there is no
 .Sy NT_PLATFORM
-elf note available.
+ELF note available.
 .It Er EFAULT
 .Fa P
 refers to a live process and

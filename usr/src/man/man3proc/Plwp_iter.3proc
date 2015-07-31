@@ -15,8 +15,8 @@
 .Dt PLWP_ITER 3PROC
 .Os
 .Sh NAME
-.Nm Plpw_iter ,
-.Nm Plpw_iter_all
+.Nm Plwp_iter ,
+.Nm Plwp_iter_all
 .Nd iterate over threads
 .Sh SYNOPSIS
 .Lb libproc

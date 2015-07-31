@@ -16,7 +16,7 @@
 .Os
 .Sh NAME
 .Nm pr_getpeerucred
-.Nd inject getpeerucred library call call into victim process
+.Nd inject getpeerucred library call into victim process
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h
@@ -31,9 +31,9 @@ The
 .Fn pr_getpeerucred
 function injects the
 .Xr getpeerucred 3C
-library call call into the target process specified by the process handle
+library call into the target process specified by the process handle
 .Fa P
-by means of the agent lwp.
+by means of the agent LWP.
 If the process handle
 .Fa P
 is the value
@@ -47,8 +47,8 @@ The arguments
 and
 .Fa *ucp
 have the same meaning as in
-.Xr getpeerucred 3C ,
-see
+.Xr getpeerucred 3C .
+See
 .Xr getpeerucred 3C
 for the full description and purpose of the
 .Sy getpeerucred
@@ -82,7 +82,7 @@ The
 function will fail if:
 .Bl -tag -width Er
 .It Er ENOSYS
-An error occurred while trying to invoke the agent lwp and inject a
+An error occurred while trying to invoke the agent LWP and inject a
 system call in the process handle
 .Fa P
 or the process handle

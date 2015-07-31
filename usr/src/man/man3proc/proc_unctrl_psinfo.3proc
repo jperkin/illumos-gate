@@ -34,7 +34,7 @@ structure (the
 member) converting unprintable characters into spaces. The conversion
 continues until a null character is encountered. Note, this routine only
 will correctly handle 7-bit ASCII characters. Characters in other
-encodings, eg. UTF-8, may be misinterpreted as unprintable.
+encodings, e.g. UTF-8, may be misinterpreted as unprintable.
 .Sh INTERFACE STABILITY
 .Sy Committed
 .Sh MT-LEVEL
@@ -49,5 +49,5 @@ if the same value for
 .Fa psp
 is passed in from multiple threads.
 .Sh SEE ALSO
-.Xr libproc 3PROC ,
+.Xr libproc 3LIB ,
 .Xr proc 4

@@ -50,7 +50,7 @@ The
 function is identical to the
 .Fn Pclearsig
 function, except rather than operating on the process and its
-representive thread, it instead operates on the thread handle
+representative thread, it instead operates on the thread handle
 .Fa L .
 .Pp
 The
@@ -63,7 +63,7 @@ Upon successful completion, the
 function clears pending faults and
 returns
 .Sy 0 .
-Otherwise
+Otherwise,
 .Sy -1
 is returned,
 .Sy errno
@@ -82,6 +82,6 @@ See
 in
 .Xr libproc 3LIB .
 .Sh SEE ALSO
-.Xr signal.h 3EHAD ,
+.Xr signal.h 3HEAD ,
 .Xr libproc 3LIB ,
 .Xr proc 4

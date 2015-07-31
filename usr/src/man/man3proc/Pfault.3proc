@@ -89,7 +89,7 @@ function will fail if:
 .It Er EINVAL
 The value of
 .Fa which
-is invalid, eg. it is less than zero or greater than the largest defined
+is invalid, e.g. it is less than zero or greater than the largest defined
 fault.
 .It Er ENOENT
 The handle

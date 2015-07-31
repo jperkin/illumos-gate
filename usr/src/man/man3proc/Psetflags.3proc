@@ -41,7 +41,7 @@ functions manipulate the process flags for the process handle
 The process flags determine how the process behaves in the face of
 various actions. For example, setting the
 .Sy PR_FORK
-flag indicates that the process's tracing flags and the inherit-on-fork
+flag indicates that the process' tracing flags and the inherit-on-fork
 mode should be set on children. A full list of the process flags is
 available in the
 .Sy PCSET
@@ -58,7 +58,7 @@ The
 .Fn Punsetflags
 function removes the flags specified in
 .Fa flags
-from the process's flags. Items not listed in
+from the process' flags. Items not listed in
 .Fa flags
 will remain.
 .Pp

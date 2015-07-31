@@ -334,7 +334,7 @@ Sets the \fBLWP`s\fR floating point register set.
 \fB\fBps_pauxv()\fR\fR
 .ad
 .RS 23n
-Returns a pointer to a read-only copy of the target process's auxiliary vector.
+Returns a pointer to a read-only copy of the target process' auxiliary vector.
 .RE
 
 .sp

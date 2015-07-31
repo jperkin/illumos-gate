@@ -16,7 +16,7 @@
 .Os
 .Sh NAME
 .Nm Pcreate_agent
-.Nd create the agent lwp
+.Nd create the agent LWP
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h
@@ -52,11 +52,11 @@ Upon successful completion, the
 .Fn Pcreate_agent
 function returns
 .Sy 0
-and creates the agent LWP. Otherwise
+and creates the agent LWP. Otherwise,
 .Sy -1
-is returned and
+is returned,
 .Sy errno
-is set to indicate the error and the agent LWP is not created.
+is set to indicate the error, and the agent LWP is not created.
 .Sh ERRORS
 The
 .Fn Pcreate_agent

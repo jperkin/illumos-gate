@@ -12,7 +12,7 @@
 .\" Copyright 2015 Joyent, Inc.
 .\"
 .Dd May 28, 2015
-.Dt PSTOPSATUS 3PROC
+.Dt PSTOPSTATUS 3PROC
 .Os
 .Sh NAME
 .Nm Pdstop ,
@@ -128,7 +128,7 @@ request, the return value will be
 regardless of the actual state of the process
 .Fa P .
 .Pp
-Only actively process may be stopped. Handles that refer to core files,
+Only an active process may be stopped. Handles that refer to core files,
 zombie processes, or files cannot be used, unless the value of
 .Fa request
 is set to
@@ -152,7 +152,7 @@ and with an infinite timeout.
 .Pp
 The
 .Fn Pdstop
-function is is equivalent to a calling the
+function is is equivalent to calling the
 .Fn Pstopstatus
 function with the request set to
 .Dv PCDSTOP .
@@ -220,11 +220,11 @@ The request was not
 .Dv PCNULL
 and the process handle
 .Fa P
-does not refer to an active process, but refers to a core file, a zombie
-process, or a file.
+does not refer to an active process, but to a core file, a zombie
+process, or a file instead.
 .It Er EINVAL
 .Fa request
-is not valid or the process is in an unknown state to the library.
+is not valid or the process is in a state unknown to the library.
 .It Er EPROTO
 A fatal protocol error occurred and the process could not be stopped.
 .El

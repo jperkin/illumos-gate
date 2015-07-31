@@ -100,7 +100,7 @@ process is stopped.
 .ad
 .RS 14n
 For \fBps_lstop()\fR, \fBps_lcontinue()\fR and \fBps_lrolltoaddr()\fR; there is
-no \fBLWP\fR with id \fIlwipd\fR in the target process.
+no \fBLWP\fR with id \fIlwpid\fR in the target process.
 .RE
 
 .sp

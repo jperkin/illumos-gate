@@ -51,7 +51,7 @@ functions respectively convert the fault, signal, and system call in
 .Fa sig ,
 and
 .Fa sys
-to a human readable name and place the corresponding string in
+to a human-readable name and place the corresponding string in
 .Fa buf .
 Up to
 .Fa bufsz
@@ -67,7 +67,7 @@ functions return a pointer to
 .Fa buf .
 The contents of
 .Fa buf
-are always null termianted.
+are always null terminated.
 Otherwise,
 .Dv NULL
 is returned.

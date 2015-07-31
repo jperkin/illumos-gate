@@ -15,7 +15,7 @@
 .Dt PCONTENT 3PROC
 .Os
 .Sh NAME
-.Nm Pconent
+.Nm Pcontent
 .Nd obtain process content types available
 .Sh SYNOPSIS
 .Lb libproc
@@ -45,11 +45,11 @@ The symbols that may be returned are listed in the
 heading in the
 .Sy TYPES
 section in
-.Xr libproc 3PROC .
+.Xr libproc 3LIB .
 .Sh RETURN VALUES
 Upon successful completion, the
 .Fn Pcontent
-function returns the bitwise-inclusive-OR of content types. Otherwise
+function returns the bitwise-inclusive-OR of content types. Otherwise,
 .Dv CC_CONTENT_INVALID
 is returned to indicate an error.
 .Sh INTERFACE STABILITY

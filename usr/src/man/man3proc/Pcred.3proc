@@ -48,7 +48,7 @@ The
 .Sy prcred_t
 structure only contains the space for one supplemental group by default.
 Callers should ensure that the buffer pointed to by
-.Fa prcp
+.Fa pcrp
 contains enough space to include all of the required supplemental
 groups that are desired.
 .Pp
@@ -64,7 +64,7 @@ function returns
 .Sy 0
 and updates the memory at
 .Fa pcrp
-with the credentials. Otherwise
+with the credentials. Otherwise,
 .Sy -1
 is returned to indicate an error.
 .Sh INTERFACE STABILITY

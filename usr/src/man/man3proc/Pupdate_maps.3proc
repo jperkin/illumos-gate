@@ -37,7 +37,7 @@ link-editor. In general, the
 library takes care of managing the need to call this function; however,
 debuggers, introspection tools, and others that are interposing on rtld
 activity or other actions, may need to call this function.
-Note, the
+Note that the
 .Fn Pupdate_maps
 function is only meaningful for active processes. It will do nothing on
 process handles that refer to core files, zombie processes, and ELF

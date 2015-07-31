@@ -16,7 +16,7 @@
 .Os
 .Sh NAME
 .Nm Psignal
-.Nd Set signal tracing action
+.Nd set signal tracing action
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h

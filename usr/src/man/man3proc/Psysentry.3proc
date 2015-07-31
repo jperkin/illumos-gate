@@ -59,7 +59,7 @@ The value of the
 .Fa stop
 parameter controls whether or not the system call listed in
 .Fa which
-iwll cause the thread to stop. If the value of
+will cause the thread to stop. If the value of
 .Fa stop
 is zero, then when a thread executes or returns from the system call, it
 will not stop. If the value of
@@ -107,7 +107,7 @@ functions will fail if:
 .It Er EINVAL
 The value of
 .Fa which
-is invalid, eg. it is less than zero or greater than the largest defined
+is invalid, e.g. it is less than zero or greater than the largest defined
 system call.
 .It Er ENOENT
 The handle

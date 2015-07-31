@@ -18,7 +18,7 @@
 .Nm proc_str2flt ,
 .Nm proc_str2sig ,
 .Nm proc_str2sys
-.Nd conver a string to a fault, signal, or system call
+.Nd convert a string to a fault, signal, or system call
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h

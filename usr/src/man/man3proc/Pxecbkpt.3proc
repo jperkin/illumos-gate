@@ -85,7 +85,7 @@ functions return
 .Sy 0
 having executed the original instruction at
 .Fa saved .
-Otherwise
+Otherwise,
 .Sy -1
 is returned and
 .Sy errno

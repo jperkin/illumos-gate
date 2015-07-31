@@ -27,11 +27,11 @@
 .Sh DESCRIPTION
 The
 .Fn Preset_maps
-function reset all of the mapping data, cached symbol tables, debug
+function resets all of the mapping data, cached symbol tables, debug
 information, CTF, and more in the process handle
 .Fa P .
 The map information will rebuild itself on the execution of another
-.Xr libproc 3PROC
+.Xr libproc 3LIB
 function that requires the information.
 This function should be called any time after a process handle performs
 an
@@ -41,7 +41,7 @@ processes and not core files or ELF files.
 For more information, see the
 .Sy PROGRAMMING NOTES
 section in
-.Xr libproc 3PROC .
+.Xr libproc 3LIB .
 .Sh INTERFACE STABILITY
 .Sy Committed
 .Sh MT-LEVEL

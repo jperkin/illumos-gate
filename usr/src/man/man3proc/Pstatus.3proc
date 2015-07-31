@@ -44,7 +44,7 @@ the returned data pointer is invalid.
 .Sh RETURN VALUES
 Upon successful completion, the
 .Fn Pstatus
-function returns a pointer to the process's status. It always succeeds.
+function returns a pointer to the process' status. It always succeeds.
 .Sh INTERFACE STABILITY
 .Sy Committed
 .Sh MT-LEVEL

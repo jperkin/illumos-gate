@@ -24,7 +24,8 @@
 .Ft int
 .Fo Plwp_getasrs
 .Fa "struct ps_prochandle *P"
-.Fa "aserset_t asrs"
+.Fa "lwpid_t lwpid"
+.Fa "asrset_t asrs"
 .Fc
 .Ft int
 .Fo Plwp_setasrs
@@ -70,7 +71,7 @@ structure is described in
 .Xr proc 4 .
 .Pp
 One may not set the register values of a process that is not an active
-process, eg. a process handle that refers to a file or a core file.
+process, e.g. a process handle that refers to a file or a core file.
 .Sh RETURN VALUES
 Upon successful completion, the
 .Fn Plwp_getasrs

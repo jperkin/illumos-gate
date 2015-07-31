@@ -30,8 +30,8 @@ The
 .Fn proc_get_pstatus
 function is a convenient way to read the /proc status file for the
 process
-.Fa pid . The process's
-status information will be filled into
+.Fa pid .
+The process' status information will be filled into
 .Fa psp .
 The definition of the
 .Sy pstatus_t

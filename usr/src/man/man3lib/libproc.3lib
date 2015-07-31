@@ -97,7 +97,7 @@ Not all functions in the
 .Nm
 library are valid for core files. In general, none of the commands which
 manipulate the current state of a process or thread or that try to force
-system calls on a victim process will work. Furthermore several of the
+system calls on a victim process will work. Furthermore, several of the
 information and iteration interfaces are limited based on the data that
 is available in the core file. For example, if the core file is of a
 process that omits the frame pointer, the ability of iterating the stack
@@ -118,9 +118,9 @@ Many of the operations in the library rely on information that may
 commonly be thought of as debug information being present in a process
 and its associated libraries. The library leverages symbol table
 information, CTF data
-.Pf ( Xr CTF 4 )
+.Pf ( Xr ctf 4 )
 sections, and frame unwinding information based on the use of an ABI
-defined frame pointer, eg.
+defined frame pointer, e.g.
 .Sy %ebp
 and
 .Sy %rbp
@@ -350,10 +350,10 @@ library.
 Every process handle that exists in
 .Nm
 has a state. In some cases, such as for core files, these states are
-static. Where as in other cases, such as handles that correspond to a
+static. In other cases, such as handles that correspond to a
 running process or a created process, these states are dynamic and
-change based on actions taken in the library. The state be obtained with
-the
+change based on actions taken in the library. The state can be obtained
+with the
 .Xr Pstate 3PROC
 function.
 .Pp
@@ -363,11 +363,11 @@ The various states are:
 This refers to an actively running process. This may be a process that
 was obtained by creating it with functions such as
 .Xr Pcreate 3PROC
-or by grabbing an existing process such as
+or by grabbing an existing process with a function like
 .Xr Pgrab 3PROC .
 .It Dv PS_STOP
 This refers to an active process that is no longer executing. A process
-may be stopped for many reasons, for example, it have been stopped
+may be stopped for many reasons, for example, it may have been stopped
 because an explicit stop was requested (through
 .Xr pstop 1
 for example) or a tracing event was hit.
@@ -379,18 +379,18 @@ structure which may be read directly from /proc or obtained through the
 .Xr Lstatus 3PROC
 function.
 .It Dv PS_LOST
-Control over the process has been lost. One reason that this may happen
-because the process executes a new image that requires a different set
+Control over the process has been lost. One reason that this may have happened
+is because the process executed a new image that requires a different set
 of privileges. To resume control, callers should call
-.Xr Preopen 3PROC . For more information on losing control of a process,
-see
+.Xr Preopen 3PROC .
+For more information on losing control of a process, see
 .Xr proc 4 .
-.It DV PS_UNDEAD
+.It Dv PS_UNDEAD
 This is a process that has become a zombie. It has terminated, but it
-has not been cleaned up yet by its parent. For more on the conditions of
+has not yet been cleaned up by its parent. For more on the conditions of
 becoming a zombie, see
 .Xr exec 2 .
-.It DV_PS_DEAD
+.It Dv PS_DEAD
 Processes in this state are always core files. See the earlier section
 .Sx Core Files
 for more information on working with core files.
@@ -413,8 +413,8 @@ This specifically refers to processes whose state are in
 and
 .Dv PS_STOP .
 Process handles in the other states have no notion of settable tracing
-flags, though core files, type
-.Dv PS_DEAD ,
+flags, though core files
+.Pf ( type Dv PS_DEAD ) ,
 may have a read-only snapshot of their tracing settings available.
 .Sh TYPES
 The
@@ -422,7 +422,7 @@ The
 library uses many types that come from the /proc file system
 .Pf ( Xr proc 4 )
 and the ELF format
-.Pf ( Xr ELF 3ELF ) .
+.Pf ( Xr elf 3ELF ) .
 However, it also defines the following types:
 .Pp
 .Sy struct ps_prochandle
@@ -483,7 +483,7 @@ thread's stack. The stack of other threads is covered by
 .It Dv CC_CONTENT_HEAP ("heap")
 The contents include the process heap.
 .It Dv CC_CONTENT_SHFILE ("shfile")
-The contents include shared mappings that are backed by files (eg.
+The contents include shared mappings that are backed by files (e.g.
 mapped through
 .Xr mmap 2
 with the
@@ -491,7 +491,7 @@ with the
 flag).
 .It Dv CC_CONTENT_SHANNON ("shannon")
 The contents include shared mappings that are backed by anonymous memory
-(eg. mapped through
+(e.g. mapped through
 .Xr mmap 2
 with the
 .Dv MAP_SHARED
@@ -543,8 +543,8 @@ The content includes the following set of default values:
 .Dv CC_CONTENT_CTF ,
 and
 .Dv CC_CONTENT_SYMTAB.
-Note, that the default may change. Comparisons with CC_CONTENT_DEFAULT
-should validate that all of the expected bits are set with an experssion
+Note that the default may change. Comparisons with CC_CONTENT_DEFAULT
+should validate that all of the expected bits are set with an expression
 such as
 .Li (c\ &\ CC_CONTENT_DEFAULT)\ ==\ CC_CONTENT_DEFAULT.
 .It Dv CC_CONTENT_INVALID
@@ -612,9 +612,9 @@ directory for this file. This is similar to the
 .Sy st_dev
 member of the
 .Sy stat
-structure, however it is broken out into its major and minor components.
+structure, except that it is broken out into its major and minor components.
 The
-.Sy pr_rmjaor
+.Sy pr_rmajor
 and
 .Sy pr_rminor
 members are similar in spirit to
@@ -737,8 +737,7 @@ The
 .Sy proc_walk_f
 is a function pointer type that is used with the
 .Fn proc_walk
-function .
-It is defined as
+function. It is defined as
 .Sy typedef
 .Ft int
 .Fo proc_walk_f
@@ -907,7 +906,7 @@ is a function pointer type that is used with the
 .Fn Pfdinfo_iter
 function. It is defined as
 .Sy typedef
-.Fn int
+.Ft int
 .Fo proc_fdinfo_f
 .Fa "void *"
 .Fa "prfdinfo_t *"
@@ -928,7 +927,7 @@ families of functions, there are some additional considerations.
 Importantly, if a process calls any of the
 .Xr exec 2
 suite of functions, much of the state information that is obtained,
-particularly that about mappings in the process will be invalid. Callers
+particularly about mappings in the process, will be invalid. Callers
 must ensure that they call
 .Xr Preset_maps 3PROC
 when they hold a process handle across an exec. In addition, users of

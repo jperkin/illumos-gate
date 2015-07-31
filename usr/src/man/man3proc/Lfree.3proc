@@ -30,24 +30,22 @@ The
 function is used to release all resources associated with the thread
 being controlled by the handle
 .Fa L
-due to a call to
+obtained from a call to
 .Xr Lgrab 3PROC .
-After the call to the
-.Fn Lfree
-function, other
-.Sy libproc
-routines which leveraged information from the handle
-.Fa L
-will no longer have valid data. After calling the
+After calling the
 .Fn Lfree
 function, the pointer
 .Fa L
-is invalid.
+is invalid, and other
+.Sy libproc
+routines which leveraged information from the handle
+.Fa L
+will no longer have valid data.
 .Pp
 The state of the thread is not affected by a call to
 .Fn Lfree .
 The thread's state will not transition from running to stopped or
-vice-versa, it will retain the thread's state prior to the call to
+vice-versa; it will retain the thread's state prior to the call to
 .Fn Lfree .
 .Sh INTERFACE STABILITY
 .Sy Committed

@@ -44,7 +44,7 @@ function instructs the system to clear any pending fault that would
 normally be delivered to a representative or specific thread in the
 process represented by the process handle
 .Fa P .
-The pending fault will never be delivered to process represented by
+The pending fault will never be delivered to the process represented by
 .Fa P .
 .Pp
 The
@@ -68,14 +68,14 @@ and
 .Fn Lclearfault
 functions clear pending faults and return
 .Sy 0 .
-Otherwise
+Otherwise,
 .Sy -1
 is returned,
 .Sy errno
 is set to indicate the error,
 and no faults are cleared.
 .Sh ERRORS
-For a full list of possible errors see the
+For a full list of possible errors, see the
 .Sy DIAGNOSTICS
 section in
 .Xr proc 4 .

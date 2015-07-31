@@ -25,7 +25,7 @@
 .Fa "struct ps_prochandle *P"
 .Fa "const char *dir"
 .Fc
-.Sh DESECRIPTION
+.Sh DESCRIPTION
 The
 .Fn Pisprocdir
 function determines whether or not the directory

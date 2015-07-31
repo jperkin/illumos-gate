@@ -42,7 +42,7 @@ The caller should provide a pointer to an
 whose definition can be found in
 .Xr proc 4 .
 .Fa lps
-will be filled in with information such as the thread's id, it's current
+will be filled in with information such as the thread's id, its current
 state, priority, and run-time.
 .Pp
 The
@@ -60,11 +60,11 @@ and
 is filled in with the
 thread-specific
 .Xr ps 1
-information. Otherwise
+information. Otherwise,
 .Sy -1
 is returned and
 .Sy errno
-is set.
+is set to indicate the error.
 .Sh ERRORS
 For a full list of possible errors also see the
 .Sy DIAGNOSTICS

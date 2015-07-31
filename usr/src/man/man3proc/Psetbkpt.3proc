@@ -46,10 +46,10 @@ should be passed as the third argument to
 .Pp
 When a process executes an instruction that has been replaced with a
 breakpoint, it will generate a trap, specifically
-.Sy FLTBPT
-with will cause the thread that executed it to stop.
+.Sy FLTBPT ,
+which will cause the executing thread to stop.
 .Pp
-Note, breakpoints may only be set in active processes. They may not be
+Note that breakpoints may only be set in active processes. They may not be
 set in process handles that refer to core files, zombie processes, or
 files.
 .Sh RETURN VALUES
@@ -58,9 +58,9 @@ Upon successful completion, the
 function sets the breakpoint and
 returns
 .Sy 0 .
-Otherwise
+Otherwise,
 .Sy -1
-is returned,
+is returned and
 .Sy errno
 is set to indicate the error.
 .Sh ERRORS

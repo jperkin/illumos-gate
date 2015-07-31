@@ -15,7 +15,7 @@
 .Dt PPRIV 3PROC
 .Os
 .Sh NAME
-.Nm Ppriv
+.Nm Ppriv ,
 .Nm Ppriv_free
 .Nd get and free process privilege sets
 .Sh SYNOPSIS
@@ -59,7 +59,7 @@ function returns
 .Sy 0
 and
 .Fa pprv
-is updated with a pointer to the allocated privilege set. Otherwise
+is updated with a pointer to the allocated privilege set. Otherwise,
 .Sy -1
 is returned and
 .Fa pprv

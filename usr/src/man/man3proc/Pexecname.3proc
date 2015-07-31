@@ -29,15 +29,15 @@
 .Sh DESCRIPTION
 The
 .Fn Pexecname
-function attemps to determine the full path to the process executable
+function attempts to determine the full path to the process executable
 referred to by the handle
 .Fa P .
 .Pp
 If found,
 .Fa buf
 will be filled in with the full path for up to
-.Fa buflen bytes ,
-including the null terminator.
+.Fa buflen
+bytes, including the null terminator.
 .Pp
 For a handle grabbed with
 .Xr Pgrab_file 3PROC ,
@@ -50,7 +50,7 @@ Upon successful completion, the
 function returns the value of
 .Fa buf ,
 and up to
-.Fa nbytes
+.Fa buflen
 of
 .Fa buf
 are filled in with a null-terminated path.

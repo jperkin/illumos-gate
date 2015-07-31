@@ -22,7 +22,7 @@
 .In libproc.h
 .Ft int
 .Fo Pdelbkpt
-.Fa "struct ps_prochnadle *P"
+.Fa "struct ps_prochandle *P"
 .Fa "uintptr_t address"
 .Fa "ulong_t saved"
 .Fc
@@ -44,7 +44,7 @@ is no longer the architecture-specific breakpoint instruction, then
 .Fa saved
 is not restored, but the function still returns successfully. This
 behavior is done due to the presence of setting breakpoints in
-self-modifying code, eg. procedure linkage tables.
+self-modifying code, e.g. procedure linkage tables.
 .Pp
 The
 .Fn Pdelbkpt
@@ -60,9 +60,9 @@ Upon successful completion, the
 function removes the breakpoint and
 returns
 .Sy 0 .
-Otherwise
+Otherwise,
 .Sy -1
-is returned,
+is returned, and
 .Sy errno
 is set to indicate the error.
 .Sh ERRORS

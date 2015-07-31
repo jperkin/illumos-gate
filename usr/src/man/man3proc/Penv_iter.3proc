@@ -47,7 +47,7 @@ return value controls whether or not iteration is continued. If
 .Fa func
 returns zero, then iteration continues. However, if the function instead
 returns non-zero, then it will terminate iteration and return that
-value. It is recommend that callback functions do not return
+value. It is recommended that callback functions do not return
 .Sy -1
 so as to distinguish between the failure of the
 .Fn Penv_iter

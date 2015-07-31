@@ -191,5 +191,5 @@ indicates the system failure.
 .Xr libproc 3LIB ,
 .Xr Pfree 3PROC ,
 .Xr Pgrab_error 3PROC ,
-.Xr Preleae 3PROC ,
+.Xr Prelease 3PROC ,
 .Xr core 4

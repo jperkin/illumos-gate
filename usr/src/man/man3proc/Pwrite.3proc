@@ -36,7 +36,7 @@ to the the process handle
 .Fa P
 starting at the address
 .Fa address
-in the process's address space and write at most
+in the process' address space and write at most
 .Fa nbyte
 of data. The
 .Fn Pwrite
@@ -50,7 +50,7 @@ For live processes, this function is equivalent to writing to the
 file for the process. For core files, it writes from the logical address
 space of what was once the process and not the corresponding offset in
 the on-disk file. ELF objects grabbed through
-.Xr Prab_file 3PROC
+.Xr Pgrab_file 3PROC
 do not support being written to.
 .Pp
 The

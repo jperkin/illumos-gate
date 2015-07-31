@@ -29,7 +29,7 @@
 .Fa "int *perr"
 .Fc
 .Ft pid_t
-.Fo proc_arg_psinfo
+.Fo proc_arg_xpsinfo
 .Fa "const char *arg"
 .Fa "int oflag"
 .Fa "psinfo_t *psp"
@@ -43,7 +43,7 @@ and
 .Fn proc_arg_xpsinfo
 functions are utility functions which process arguments which may be a
 currently active process or a core file and attempt to obtain the
-process's
+process'
 .Xr ps 1
 information and fill it into
 .Fa psp .
@@ -53,13 +53,13 @@ The string
 contains the name of something to try and open. How it is interpreted
 depends on the value of
 .Fa oflag .
-The following values may be passed in as a bitwise-exclusive-or for
+The following values may be passed in as a bitwise-exclusive-OR for
 .Fa oflag :
 .Bl -tag -width Dv -offset indent
 .It Dv PR_ARG_PIDS
 Allows
 .Fa arg
-to specify process ids and /proc arguments.
+to specify process IDs and /proc arguments.
 .It Dv PR_ARG_CORES
 Allows
 .Fa arg
@@ -73,9 +73,9 @@ The argument
 must be a
 .Pf non- Dv NULL
 pointer and in the event that the
-.Fn proc_arg_grab
+.Fn proc_arg_psinfo
 or
-.Fn proc_arg_xgrab
+.Fn proc_arg_xpsinfo
 functions fail, then
 .Fa perr
 will be updated with a more detailed error number.
@@ -99,7 +99,7 @@ and
 .Fn proc_arg_xpsinfo
 functions return the process identifier and fill in
 .Fa psp
-with the process's ps information. Otherwise,
+with the process' ps information. Otherwise,
 .Sy -1
 is returned and
 .Fa perr

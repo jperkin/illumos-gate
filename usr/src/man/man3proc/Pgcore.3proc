@@ -40,7 +40,7 @@ functions produce core files of the handle referred to by
 .Fa P .
 Core files represent a snapshot of a process and may be manipulated by a
 wide variety of tools and libraries including
-.Xr libproc 3PROC ,
+.Xr libproc 3LIB ,
 .Xr mdb 1 ,
 .Xr pargs 1 ,
 .Xr pstack 1 ,
@@ -55,7 +55,7 @@ file descriptor
 The file descriptor should be open for both read and write. The
 .Fn Pgcore
 function on the other hand writes out the core file to the file path
-.Fa fpath .
+.Fa fname .
 .Pp
 The contents of the core file may be controlled by the
 .Fa content
@@ -67,7 +67,7 @@ listed under the
 heading in the
 .Sy TYPES
 section in
-.Xr libproc 3PROC .
+.Xr libproc 3LIB .
 Using
 .Dv CC_CONTENT_INVALID
 is illegal and will result in an error.
@@ -100,7 +100,7 @@ function will truncate
 and the
 .Fn Pgcore
 function will remove
-.Fa fpath .
+.Fa fname .
 .Sh INTERFACE STABILITY
 .Sy Committed
 .Sh MT-LEVEL

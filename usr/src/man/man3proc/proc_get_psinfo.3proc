@@ -30,7 +30,8 @@ The
 .Fn proc_get_psinfo
 function is a convenient way to read the /proc psinfo file for the
 process
-.Fa pid . The process's
+.Fa pid .
+The process'
 .Xr ps 1
 related information will be filled into
 .Fa psp .

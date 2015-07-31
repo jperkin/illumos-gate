@@ -39,7 +39,7 @@ If
 does not correspond to an address from an object mapped in by the
 run-time link editor, such as anonymous mapping created with
 .Xr mmap 2 ,
-then ther will be no corresponding link-map identifier.
+then there will be no corresponding link-map identifier.
 .Pp
 .Fa lmidp
 must be a
@@ -52,7 +52,7 @@ Upon successful completion, the
 function returns
 .Sy 0
 and updates
-.Fa Lmidp
+.Fa lmidp
 with the link-map identifier of
 .Fa addr .
 Otherwise,

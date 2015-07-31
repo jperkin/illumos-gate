@@ -45,7 +45,7 @@ corresponds to an address in the PLT.
 .Sh RETURN VALUES
 Upon successful completion, the
 .Fn Ppltdest
-returns a pointer to a character string with the name. Otherwise
+returns a pointer to a character string with the name. Otherwise,
 .Dv NULL
 is returned.
 .Sh INTERFACE STABILITY

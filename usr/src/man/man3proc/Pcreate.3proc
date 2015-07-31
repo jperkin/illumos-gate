@@ -106,7 +106,7 @@ for the modification of signal dispositions or any other changes that a
 caller may wish to make.
 .Pp
 If the caller's real user or group ID is not their effective user or
-group ID, then the child process's user and group IDs will all be reset
+group ID, then the child process' user and group IDs will all be reset
 to the real user and group id.
 .Pp
 The
@@ -117,8 +117,8 @@ pointer. If the
 .Fn Pcreate
 or
 .Fn Pxcreate
-functions fail, the value pointed to will be filled in with a more
-detailed error code listed in
+functions fail, the value pointed to will be filled in with one of the
+more detailed error code listed in
 .Sx ERRORS .
 A human-readable version of the error message is obtainable with the
 .Xr Pcreate_error 3PROC

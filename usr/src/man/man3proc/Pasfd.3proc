@@ -27,7 +27,7 @@
 .Sh DESCRIPTION
 The
 .Fn Pasfd
-funtion returns a file descriptor that allows direct access to the
+function returns a file descriptor that allows direct access to the
 address space of the process handle
 .Fa P .
 A defined file descriptor is provided when using the
@@ -44,7 +44,7 @@ file, except for live processes. Other means of obtaining a
 process handle may not define a file descriptor that contains the
 address space.
 .Pp
-The returned file descriptor must not be closed and is only valid until
+The returned file descriptor must not be closed and is only valid
 for as long as the corresponding process handle
 .Fa P
 is valid. After a call to

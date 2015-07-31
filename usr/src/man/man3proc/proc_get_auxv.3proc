@@ -16,7 +16,7 @@
 .Os
 .Sh NAME
 .Nm proc_get_auxv
-.Nd get process aux vector
+.Nd get process auxiliary vector
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h
@@ -34,11 +34,11 @@ function is a convenient way to read the /proc auxv file for the process
 Up to
 .Fa naux
 vectors will be read and written into
-.Fa Pauxv .
+.Fa pauxv .
 .Sh RETURN VALUES
 Upon successful completion, the
 .Fn proc_get_auxv
-function returns the number of aux vectors read into
+function returns the number of auxiliary vectors read into
 .Fa pauxv.
 Otherwise,
 .Sy -1

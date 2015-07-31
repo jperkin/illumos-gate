@@ -15,9 +15,9 @@
 .Dt PROC_CONTENT2STR 3PROC
 .Os
 .Sh NAME
-.Nm proc_content2str
+.Nm proc_content2str ,
 .Nm proc_str2content
-.Nd convert a string to and from a process's contents
+.Nd convert a string to and from a process' contents
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h
@@ -55,11 +55,11 @@ is available in the
 portion of the
 .Sy TYPES
 section in
-.Xr libproc 3PROC .
+.Xr libproc 3LIB .
 .Pp
 The
 .Fn proc_str2content
-function takes teh character string
+function takes the character string
 .Fa str
 and based on the format described in the previous paragraph, converts it
 back into a
@@ -68,15 +68,16 @@ which is placed into
 .Fa cp .
 .Sh RETURN VALUES
 Upon successful completion, the
-.Fn proc_str2content
-function will return the number of characters written into, excluding
-the terminating null character.
+.Fn proc_content2str
+function will return the number of characters written into
+.Fa buf ,
+excluding the terminating null character.
 .Pp
 Upon successful completion, the
 .Fn proc_str2content
 function will return
 .Sy 0 .
-Otherwise
+Otherwise,
 .Sy -1
 will be returned to indicate an unknown string.
 .Sh INTERFACE STABILITY

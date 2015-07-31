@@ -24,6 +24,7 @@
 .Ft int
 .Fo Plwp_getxregs
 .Fa "struct ps_prochandle *P"
+.Fa "lwpid_t lwpid"
 .Fa "prxregset_t *xregs"
 .Fc
 .Ft int
@@ -71,7 +72,7 @@ structure is described in
 .Xr proc 4 .
 .Pp
 One may not set the register values of a process that is not an active
-process, eg. a process handle that refers to a file or a core file.
+process, e.g. a process handle that refers to a file or a core file.
 .Sh RETURN VALUES
 Upon successful completion, the
 .Fn Plwp_getxregs
@@ -134,7 +135,7 @@ in
 .Xr libproc 3LIB ,
 .Xr Plwp_getfpregs 3PROC ,
 .Xr Plwp_getregs 3PROC ,
-.Xr Plwp_setregs 3PROC ,
+.Xr Plwp_setfpregs 3PROC ,
 .Xr Plwp_setregs 3PROC ,
 .Xr Pstop 3PROC ,
 .Xr proc 4

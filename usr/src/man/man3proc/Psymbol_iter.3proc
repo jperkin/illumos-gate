@@ -123,7 +123,7 @@ The
 argument controls which of two possible symbol tables will be searched.
 If the argument is
 .Dv PR_SYMTAB
-then the ELF symbol table will be searched. Otherwise, if it
+then the ELF symbol table will be searched. Otherwise, if it is
 .Dv PR_DYNSYM
 then the symbol table associated with the dynamic section will be
 searched instead. If any other value is specified for
@@ -239,13 +239,12 @@ and
 .Fn Pxsymbol_iter
 functions. Because these functions return
 .Sy -1
-on internal failure, it is recommended that the callback function does
-not return
+on internal failure, it is recommended that the callback function not return
 .Sy -1
 to indicate an error so that the caller may distinguish between the
 failure of the callback function and the failure of these functions.
 .Sh RETURN VALUES
-Upon successful completion, th
+Upon successful completion, the
 .Fn Psymbol_iter ,
 .Fn Psymbol_iter_by_addr ,
 .Fn Psymbol_iter_by_lmid ,
@@ -254,7 +253,7 @@ and
 .Fn Pxsymbol_iter
 functions return
 .Sy 0 .
-Otherwise, if there was an internal error then
+If there was an internal error then
 .Sy -1
 is returned. Otherwise, if the callback function
 .Fa func
@@ -268,6 +267,6 @@ in
 .Xr libproc 3LIB .
 .Sh SEE ALSO
 .Xr elf 3ELF ,
-.Xr gelf 3LF ,
+.Xr gelf 3ELF ,
 .Xr libproc 3LIB ,
 .Xr proc 4

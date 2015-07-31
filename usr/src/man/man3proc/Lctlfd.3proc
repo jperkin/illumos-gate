@@ -32,7 +32,7 @@ function returns a file descriptor to the underlying /proc file system
 file for the thread identified by the handle
 .Fa L .
 This may be used for injecting control operations manually; however,
-many interface for using it are provided by
+many interfaces for using it are provided by
 .Xr libproc 3LIB
 itself.
 .Pp

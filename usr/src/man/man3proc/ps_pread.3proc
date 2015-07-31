@@ -49,7 +49,7 @@ in libthread_db that target process memory access
 .SH DESCRIPTION
 .sp
 .LP
-These routines copy data between the target process's address space and the
+These routines copy data between the target process' address space and the
 controlling process. \fBps_pread()\fR copies \fIsize\fR bytes from address
 \fIaddr\fR in the target process into \fIbuf\fR in the controlling process.
 \fBpr_pwrite()\fR is like \fBps_pread()\fR except that the direction of the
@@ -79,7 +79,7 @@ The call returned successfully. \fIsize\fR bytes were copied.
 .ad
 .RS 14n
 Some part of the address range from \fIaddr\fR through
-\fIaddr\fR+\fIsize\fR\(mi\fB1\fR is not part of the target process's address
+\fIaddr\fR+\fIsize\fR\(mi\fB1\fR is not part of the target process' address
 space.
 .RE
 
