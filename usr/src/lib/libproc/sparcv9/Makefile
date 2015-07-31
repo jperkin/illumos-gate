@@ -22,8 +22,6 @@
 # Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-# ident	"%Z%%M%	%I%	%E% SMI"
-#
 
 # This is a 64-bit build, and as such needs 64-bit ELF support
 CMNOBJS64 =	Psymtab_machelf64.o

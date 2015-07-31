@@ -17,7 +17,7 @@
 .Sh NAME
 .Nm proc_content2str ,
 .Nm proc_str2content
-.Nd convert a string to and from a process' contents
+.Nd convert a string to and from a core_content_t
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h

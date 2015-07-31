@@ -31,7 +31,7 @@ The
 function is a convenient way to read the /proc status file for the
 process
 .Fa pid .
-The process' status information will be filled into
+The status information of the process will be filled into
 .Fa psp .
 The definition of the
 .Sy pstatus_t

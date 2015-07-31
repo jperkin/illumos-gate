@@ -41,11 +41,10 @@ The
 .Fn proc_arg_psinfo
 and
 .Fn proc_arg_xpsinfo
-functions are utility functions which process arguments which may be a
-currently active process or a core file and attempt to obtain the
-process'
+functions are utility functions which process an argument that may
+refer to a currently active process or core file and attempts to obtain the
 .Xr ps 1
-information and fill it into
+information from the process or core and fills it into
 .Fa psp .
 .Pp
 The string
@@ -99,7 +98,7 @@ and
 .Fn proc_arg_xpsinfo
 functions return the process identifier and fill in
 .Fa psp
-with the process' ps information. Otherwise,
+with the ps information of the process. Otherwise,
 .Sy -1
 is returned and
 .Fa perr

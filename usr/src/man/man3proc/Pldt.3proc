@@ -17,7 +17,7 @@
 .Sh NAME
 .Nm Pldt ,
 .Nm proc_get_ldt
-.Nd obtain process' local descriptor table
+.Nd obtain local descriptor table of a process
 .Sh SYNOPSIS
 .Lb libproc
 .In libproc.h

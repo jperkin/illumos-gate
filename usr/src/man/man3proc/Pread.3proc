@@ -25,14 +25,14 @@
 .Fo Pread
 .Fa "struct ps_prochandle *P"
 .Fa "void *buf"
-.Fa "size_t nbyte"
+.Fa "size_t nbytes"
 .Fa "uintptr_t address"
 .Fc
 .Ft ssize_t
 .Fo Pread_string
 .Fa "struct ps_prochandle *P"
 .Fa "char *buf"
-.Fa "size_t nbyte"
+.Fa "size_t nbytes"
 .Fa "uintptr_t address"
 .Fc
 .Sh DESCRIPTION
@@ -42,8 +42,8 @@ function reads data from the process handle
 .Fa P
 starting at
 .Fa address
-in the process' address space and reads at most
-.Fa nbyte
+in the address space of the process and reads at most
+.Fa nbytes
 of data into
 .Fa buf
 and is logically analogous to the
@@ -72,12 +72,12 @@ as a null terminated character string and will stop reading characters
 into
 .Fa buf
 if either
-.Fa nbyte
+.Fa nbytes
 has been read or a null terminator is encountered. The resulting data in
 .Fa buf
 will always be null terminated, even if no null terminator was found in
 the first
-.Fa nbyte
+.Fa nbytes
 of data.
 .Sh RETURN VALUES
 Upon successful completion, the

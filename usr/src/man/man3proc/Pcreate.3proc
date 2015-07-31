@@ -106,8 +106,8 @@ for the modification of signal dispositions or any other changes that a
 caller may wish to make.
 .Pp
 If the caller's real user or group ID is not their effective user or
-group ID, then the child process' user and group IDs will all be reset
-to the real user and group id.
+group ID, then the user and group IDs of the child process will all be
+reset to the real user and group id.
 .Pp
 The
 .Fa perr

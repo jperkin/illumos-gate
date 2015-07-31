@@ -31,9 +31,9 @@ The
 function is a convenient way to read the /proc psinfo file for the
 process
 .Fa pid .
-The process'
+The
 .Xr ps 1
-related information will be filled into
+related information of the process will be filled into
 .Fa psp .
 The definition of the
 .Sy psinfo_t

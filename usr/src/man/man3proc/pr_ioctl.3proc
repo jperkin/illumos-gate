@@ -63,8 +63,8 @@ system call, the
 .Fn pr_ioctl
 function needs to know the maximum size of the buffer
 .Fa buf
-such that it can be properly injected into the target process' address
-space.
+such that it can be properly injected into the address space of the
+target process.
 .Pp
 The
 .Fn pr_ioctl
