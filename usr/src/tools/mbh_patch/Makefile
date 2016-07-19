@@ -31,6 +31,7 @@ PROG	= mbh_patch
 
 include ../Makefile.tools
 
+CERRWARN += -_gcc=-Wno-uninitialized
 CPPFLAGS += -I../../uts/common
 
 .KEEP_STATE:
