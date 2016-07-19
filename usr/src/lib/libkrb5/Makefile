@@ -57,8 +57,8 @@ $(SUBDIRS):	FRC
 install_h:	$(KRB5INCDIR) $(KRB5HDRS)
 
 $(COMERRHINST):	$(COMERRH)
-	install -s -m 644 -f $(KRB5INCDIR) $(COMERRH)
+	$(INS) -s -m 644 -f $(KRB5INCDIR) $(COMERRH)
 $(KRB5HINST):	$(KRB5H)
-	install -s -m 644 -f $(KRB5INCDIR) $(KRB5H)
+	$(INS) -s -m 644 -f $(KRB5INCDIR) $(KRB5H)
 
 FRC:
