@@ -1,0 +1,96 @@
+#
+# Repository locations.  Change these if the computed values aren't correct.
+#
+export GATE="@GATE@"
+export CODEMGR_WS="@WS@/${GATE}"
+
+#
+# Other directory locations which may need to be changed in custom environments.
+#
+export arm_GCC_ROOT="/opt/armtc/usr"
+export arm_GNU_ROOT="/opt/armtc/usr/gnu"
+export i386_GCC_ROOT="@WS@/illumos-extra-arm/proto-i86pc/usr"
+export i386_GNU_ROOT="@WS@/illumos-extra-arm/proto-i86pc/usr/gnu"
+export CW_arm_GCC="/opt/armtc/usr/bin/arm-pc-solaris2.11-gcc-4.6.3"
+export ON_CLOSED_BINS="${CODEMGR_WS}/closed"
+export SPRO_ROOT="/opt/SUNWspro"
+
+# Set for cross build environment
+@XBUILD@export CPP=/opt/armtc/usr/lib/cpp
+@XBUILD@export AW_CPP=/opt/armtc/usr/lib/cpp
+@XBUILD@export LD_ALTEXEC=/opt/armtc/usr/bin/ld
+@XBUILD@export BUILD64="#"
+
+#
+# MAX_JOBS
+#
+export MAX_JOBS=8
+maxjobs()
+{
+	ncpu=`kstat -p cpu_info:::state | grep -c on-line`
+	if [[ $(( $ncpu + 2 )) -lt ${MAX_JOBS} ]]; then
+		expr $ncpu + 2
+	else
+		printf "%d\n" ${MAX_JOBS}
+	fi
+}
+export DMAKE_MAX_JOBS=`maxjobs`
+
+#
+# illumos nightly and other source variables
+#
+export MACH="@MACH@"
+export NATIVE_MACH="i386"
+#
+export ATLOG="${CODEMGR_WS}/log"
+export PARENT_WS=""
+export ROOT="${CODEMGR_WS}/proto/root_${MACH}"
+#
+export BUILD_PROJECT=""
+export BUILD_TOOLS="${CODEMGR_WS}/usr/src/tools/proto/root_${MACH}-nd/opt"
+export CLONE_WS="http://hg.illumos.org/illumos-gate"
+export CW_NO_SHADOW="1"
+export LD_TOXIC_PATH="${ROOT}/lib:${ROOT}/usr/lib"
+export LOGFILE="${ATLOG}/nightly.log"
+export MAKEFLAGS="k"
+export MULTI_PROTO="no"
+export NIGHTLY_OPTIONS="-CimNnt"
+export PKGARCHIVE="${CODEMGR_WS}/packages/${MACH}/nightly"
+export REF_PROTO_LIST="${PARENT_WS}/usr/src/proto_list_${MACH}"
+export SRC="${CODEMGR_WS}/usr/src"
+export STAFFER="nobody"
+export UT_NO_USAGE_TRACKING="1"
+export VERSION="${GATE}"
+
+#
+# Compiler setup
+#
+export __GNUC=""
+export __GNUC4=""
+export SPRO_VROOT="${SPRO_ROOT}"
+
+#
+# Support tools from pkgsrc
+#
+export NATIVE_ADJUNCT="/opt/local"
+export ASTBINDIR="${NATIVE_ADJUNCT}/ast/bin"
+export FLEX="${NATIVE_ADJUNCT}/bin/flex"
+export GNUXGETTEXT="${NATIVE_ADJUNCT}/bin/xgettext"
+export JAVA_ROOT="${NATIVE_ADJUNCT}/java/openjdk7"
+export LEX="${NATIVE_ADJUNCT}/bin/lex"
+export MAKE="${NATIVE_ADJUNCT}/bin/dmake"
+export PYTHON_26="${NATIVE_ADJUNCT}/bin/python2.6"
+export RPCGEN="${NATIVE_ADJUNCT}/bin/rpcgen"
+export YACC="${NATIVE_ADJUNCT}/bin/yacc"
+
+#
+# Host tools
+#
+export AR="/usr/bin/ar"
+export ELFDUMP="/usr/bin/elfdump"
+export INS="/usr/sbin/install"
+export LORDER="/usr/bin/lorder"
+export MCS="/usr/bin/mcs"
+export NM="/usr/bin/nm"
+export STRIP="/usr/bin/strip"
+export TSORT="/usr/bin/tsort"

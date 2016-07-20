@@ -1,0 +1,92 @@
+#!/bin/bash
+#
+# Set up a cloned arm-gate branch ready for building on SmartOS
+#
+
+CONF_PKGSRCURL="https://download.joyent.com/pub/build/pkgsrc"
+CONF_CLOSEDBINSURL="https://download.joyent.com/pub/build/illumos/on-closed-bins.i386.tar.bz2"
+CONF_CLOSEDBINSNDURL="https://download.joyent.com/pub/build/illumos/on-closed-bins-nd.i386.tar.bz2"
+CONF_SPRO12URL="https://download.joyent.com/pub/build/SunStudio.tar.bz2"
+PROG_CURL="/opt/local/bin/curl"
+PROG_PFEXEC="/usr/bin/pfexec"
+PROG_TAR="/usr/bin/tar"
+
+die()
+{
+	echo "ERROR: $*"
+	exit 1
+}
+
+if [ $(${PROG_PFEXEC} id -u) -ne 0 ]; then
+	die "This script requires being able to elevate privs via pfexec"
+fi
+
+#
+# Install extra pkgsrc packages
+#
+for pkg in dmake sgstools rpcgen astmsgtools; do
+	if ! pkg_info -qe ${pkg}; then
+		echo "Fetching ${pkg}"
+		${PROG_CURL} -k "${CONF_PKGSRCURL}/${pkg}.tgz" \
+		    -o /var/tmp/${pkg}.tgz || die "Failed to fetch $pkg.tgz"
+		echo "Installing ${pkg}"
+		${PROG_PFEXEC} pkg_add -C /dev/null /var/tmp/$pkg.tgz \
+		    || die "Failed to pkg_add $pkg"
+		rm -f /var/tmp/$pkg.tgz
+	fi
+done
+
+#
+# Install closed bins
+#
+if [ ! -d closed ]; then
+	mkdir -p closed
+fi
+if [ ! -f closed/on-closed-bins.i386.tar.bz2 ]; then
+	echo "Fetching closed bins (debug)"
+	${PROG_CURL} -ko closed/on-closed-bins.i386.tar.bz2 \
+	    ${CONF_CLOSEDBINSURL} || die "Failed to fetch closed bins (debug)"
+fi
+if [ ! -d closed/root_i386 ]; then
+	${PROG_TAR} xpjf closed/on-closed-bins.i386.tar.bz2
+fi
+if [ ! -f closed/on-closed-bins-nd.i386.tar.bz2 ]; then
+	echo "Fetching closed bins (non-debug)"
+	${PROG_CURL} -ko closed/on-closed-bins-nd.i386.tar.bz2 \
+	    ${CONF_CLOSEDBINSNDURL} || die "Failed to fetch closed bins (non-debug)"
+fi
+if [ ! -d closed/root_i386-nd ]; then
+	${PROG_TAR} xpjf closed/on-closed-bins-nd.i386.tar.bz2
+fi
+if [ ! -f closed/SunStudio.tar.bz2 ]; then
+	echo "Fetching Sun Studio"
+	${PROG_CURL} -ko closed/SunStudio.tar.bz2 ${CONF_SPRO12URL} \
+	    || die "Failed to fetch Sun Studio"
+fi
+if [ ! -f /opt/SUNWspro/prod/bin/cc ]; then
+	echo "Installing Sun Studio"
+	${PROG_TAR} xpjf closed/SunStudio.tar.bz2 -C /opt
+	ln -f -s /opt/SUNWspro /opt/SUNWspro/sunstudio12.1
+fi
+
+#
+# Configure bldenv configs.
+#
+if [ ! -f bldenv-arm.conf ]; then
+	echo "Configuring bldenv-arm.conf"
+	sed < bldenv.conf.in \
+	    -e "s,@GATE@,$(basename $(pwd -P)),g" \
+	    -e "s,@WS@,$(dirname $(pwd -P)),g" \
+	    -e "s,@MACH@,arm,g" \
+	    -e "s,@XBUILD@,,g" \
+	    > bldenv-arm.conf
+fi
+if [ ! -f bldenv-i386.conf ]; then
+	echo "Configuring bldenv-i386.conf"
+	sed < bldenv.conf.in \
+	    -e "s,@GATE@,$(basename $(pwd -P)),g" \
+	    -e "s,@WS@,$(dirname $(pwd -P)),g" \
+	    -e "s,@MACH@,i386,g" \
+	    -e "s,@XBUILD@,#,g" \
+	    > bldenv-i386.conf
+fi
