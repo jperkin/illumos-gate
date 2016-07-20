@@ -64,7 +64,7 @@ function setup
 	trap 'cleanup' EXIT
 	mkfile "$mkp_size"k "$mkp_rdfile" || fatal "failed to create file"
 	chmod 644 $mkp_rdfile
-	chown $USER $mkp_rdfile || fatal "failed to chown"
+	chown ${USER:-root} $mkp_rdfile || fatal "failed to chown"
 	mkdir $mkp_rdmnt || fatal "failed to make mount point"
 }
 
@@ -94,7 +94,7 @@ function teardown
 	lofiadm -d "$mkp_rdfile"
 	rm -f boot_archive
 	cp $mkp_rdfile boot_archive
-	chown $USER boot_archive
+	chown ${USER:-root} boot_archive
 }
 
 while getopts u: name; do
