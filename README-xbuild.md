@@ -186,6 +186,7 @@ $ cd usr/src
 $ dmake setup
 $ cd uts
 $ dmake install
+$ exit
 ```
 
 You now have a lovely unix and boot_archive pair in bcm2835/unix (Raspberry
@@ -201,31 +202,32 @@ where things diverge between qemu and the Raspberry Pi.
 Install some build dependencies.
 
 ```console
-pkgin in pkg-config glib2 pixman
+$ pkgin -y install glib2 pixman pkg-config
 ```
 
 Get qemu and build it.
 
 ```console
-$ git clone https://github.com/jperkin/qemu.git
-$ cd qemu
+$ git clone https://github.com/rmustacc/qemu.git ~/qemu
+$ cd ~/qemu
 $ git submodule update --init dtc
-$ ./configure --cpu=i386 --disable-curses # XXX: build errors
-$ gmake install
+$ ./configure --cpu=i386 --target-list=arm-softmmu --disable-curses
+$ gmake ARFLAGS="cru" install
 ```
 
 Booting qemu is very easy:
 
 ```console
+$ PROTO=~/illumos-gate-arm/proto/root_arm
 $ qemu-system-arm \
-	-kernel $PROTO/platform/qvpb/kernel/loader \
-	-initrd $PROTO/platform/qvpb/kernel/initrd \
+	-kernel ${PROTO}/platform/qvpb/kernel/loader \
+	-initrd ${PROTO}/platform/qvpb/kernel/initrd \
 	-machine versatilepb \
 	-cpu arm1176 \
 	-m 512 \
 	-no-reboot \
 	-nographic \
-	-append 'kernel /platform/qvpb/kernel/unix -Bconsole=uart'
+	-append "kernel /platform/qvpb/kernel/unix -Bconsole=uart"
 ```
 
 The loader and kernel messages should appear in the same terminal.
