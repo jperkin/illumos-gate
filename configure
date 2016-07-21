@@ -7,9 +7,16 @@ CONF_PKGSRCURL="https://download.joyent.com/pub/build/pkgsrc"
 CONF_CLOSEDBINSURL="https://download.joyent.com/pub/build/illumos/on-closed-bins.i386.tar.bz2"
 CONF_CLOSEDBINSNDURL="https://download.joyent.com/pub/build/illumos/on-closed-bins-nd.i386.tar.bz2"
 CONF_SPRO12URL="https://download.joyent.com/pub/build/SunStudio.tar.bz2"
-PROG_CURL="/opt/local/bin/curl"
 PROG_PFEXEC="/usr/bin/pfexec"
 PROG_TAR="/usr/bin/tar"
+case "$(uname -v)" in
+joyent_*)
+	PROG_CURL="/opt/local/bin/curl"
+	;;
+omnios-*)
+	PROG_CURL="/usr/bin/curl"
+	;;
+esac
 
 die()
 {
