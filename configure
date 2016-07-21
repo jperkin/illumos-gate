@@ -24,17 +24,20 @@ fi
 #
 # Install extra pkgsrc packages
 #
-for pkg in dmake sgstools rpcgen astmsgtools; do
-	if ! pkg_info -qe ${pkg}; then
-		echo "Fetching ${pkg}"
-		${PROG_CURL} -k "${CONF_PKGSRCURL}/${pkg}.tgz" \
-		    -o /var/tmp/${pkg}.tgz || die "Failed to fetch $pkg.tgz"
-		echo "Installing ${pkg}"
-		${PROG_PFEXEC} pkg_add -C /dev/null /var/tmp/$pkg.tgz \
-		    || die "Failed to pkg_add $pkg"
-		rm -f /var/tmp/$pkg.tgz
-	fi
-done
+if [[ "$(uname -v)" =~ "joyent_*" ]]; then
+	for pkg in dmake sgstools rpcgen astmsgtools; do
+		if ! pkg_info -qe ${pkg}; then
+			echo "Fetching ${pkg}"
+			${PROG_CURL} -k "${CONF_PKGSRCURL}/${pkg}.tgz" \
+			    -o /var/tmp/${pkg}.tgz \
+			    || die "Failed to fetch $pkg.tgz"
+			echo "Installing ${pkg}"
+			${PROG_PFEXEC} pkg_add -C /dev/null /var/tmp/$pkg.tgz \
+			    || die "Failed to pkg_add $pkg"
+			rm -f /var/tmp/$pkg.tgz
+		fi
+	done
+fi
 
 #
 # Install closed bins
@@ -58,35 +61,63 @@ fi
 if [ ! -d closed/root_i386-nd ]; then
 	${PROG_TAR} xpjf closed/on-closed-bins-nd.i386.tar.bz2
 fi
-if [ ! -f closed/SunStudio.tar.bz2 ]; then
-	echo "Fetching Sun Studio"
-	${PROG_CURL} -ko closed/SunStudio.tar.bz2 ${CONF_SPRO12URL} \
-	    || die "Failed to fetch Sun Studio"
-fi
-if [ ! -f /opt/SUNWspro/prod/bin/cc ]; then
-	echo "Installing Sun Studio"
-	${PROG_TAR} xpjf closed/SunStudio.tar.bz2 -C /opt
-	ln -f -s /opt/SUNWspro /opt/SUNWspro/sunstudio12.1
+if [[ "$(uname -v)" =~ "joyent_*" ]]; then
+	if [ ! -d /opt/sunstudio12.1 ]; then
+		if [ ! -f closed/SunStudio.tar.bz2 ]; then
+			echo "Fetching Sun Studio"
+			${PROG_CURL} -ko closed/SunStudio.tar.bz2 \
+			    ${CONF_SPRO12URL} || die "Failed to fetch Sun Studio"
+		fi
+		echo "Installing Sun Studio"
+		${PROG_TAR} xpjf closed/SunStudio.tar.bz2 -C /opt
+	fi
+	if [ ! -f /opt/SUNWspro/prod/bin/cc ]; then
+		ln -f -s /opt/SUNWspro /opt/SUNWspro/sunstudio12.1
+	fi
 fi
 
 #
 # Configure bldenv configs.
 #
+GATE="$(basename $(pwd -P))"
+WS="$(dirname $(pwd -P))"
+case "$(uname -v)" in
+joyent_*)
+	NATIVE_ADJUNCT="/opt/local"
+	SPRO_ROOT="/opt/SUNWspro"
+	i386_GCC_ROOT="$(dirname $(pwd -P))/illumos-extra-arm/proto-i86pc/usr"
+	i386_GNU_ROOT="$(dirname $(pwd -P))/illumos-extra-arm/proto-i86pc/usr/gnu"
+	;;
+omnios-*)
+	NATIVE_ADJUNCT="/usr"
+	SPRO_ROOT="/opt/sunstudio12.1"
+	i386_GCC_ROOT="/opt/gcc-4.4.4"
+	i386_GNU_ROOT="/usr/sfw"
+	;;
+esac
 if [ ! -f bldenv-arm.conf ]; then
 	echo "Configuring bldenv-arm.conf"
 	sed < bldenv.conf.in \
-	    -e "s,@GATE@,$(basename $(pwd -P)),g" \
-	    -e "s,@WS@,$(dirname $(pwd -P)),g" \
+	    -e "s,@GATE@,${GATE},g" \
+	    -e "s,@WS@,${WS},g" \
 	    -e "s,@MACH@,arm,g" \
 	    -e "s,@XBUILD@,,g" \
+	    -e "s,@NATIVE_ADJUNCT@,${NATIVE_ADJUNCT},g" \
+	    -e "s,@SPRO_ROOT@,${SPRO_ROOT},g" \
+	    -e "s,@i386_GCC_ROOT@,${i386_GCC_ROOT},g" \
+	    -e "s,@i386_GNU_ROOT@,${i386_GNU_ROOT},g" \
 	    > bldenv-arm.conf
 fi
 if [ ! -f bldenv-i386.conf ]; then
 	echo "Configuring bldenv-i386.conf"
 	sed < bldenv.conf.in \
-	    -e "s,@GATE@,$(basename $(pwd -P)),g" \
-	    -e "s,@WS@,$(dirname $(pwd -P)),g" \
+	    -e "s,@GATE@,${GATE},g" \
+	    -e "s,@WS@,${WS},g" \
 	    -e "s,@MACH@,i386,g" \
 	    -e "s,@XBUILD@,#,g" \
+	    -e "s,@NATIVE_ADJUNCT@,${NATIVE_ADJUNCT},g" \
+	    -e "s,@SPRO_ROOT@,${SPRO_ROOT},g" \
+	    -e "s,@i386_GCC_ROOT@,${i386_GCC_ROOT},g" \
+	    -e "s,@i386_GNU_ROOT@,${i386_GNU_ROOT},g" \
 	    > bldenv-i386.conf
 fi

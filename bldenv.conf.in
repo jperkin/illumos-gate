@@ -9,11 +9,11 @@ export CODEMGR_WS="@WS@/${GATE}"
 #
 export arm_GCC_ROOT="/opt/armtc/usr"
 export arm_GNU_ROOT="/opt/armtc/usr/gnu"
-export i386_GCC_ROOT="@WS@/illumos-extra-arm/proto-i86pc/usr"
-export i386_GNU_ROOT="@WS@/illumos-extra-arm/proto-i86pc/usr/gnu"
+export i386_GCC_ROOT="@i386_GCC_ROOT@"
+export i386_GNU_ROOT="@i386_GNU_ROOT@"
 export CW_arm_GCC="/opt/armtc/usr/bin/arm-pc-solaris2.11-gcc-4.6.3"
 export ON_CLOSED_BINS="${CODEMGR_WS}/closed"
-export SPRO_ROOT="/opt/SUNWspro"
+export SPRO_ROOT="@SPRO_ROOT@"
 
 # Set for cross build environment
 @XBUILD@export CPP=/opt/armtc/usr/lib/cpp
@@ -72,7 +72,7 @@ export SPRO_VROOT="${SPRO_ROOT}"
 #
 # Support tools from pkgsrc
 #
-export NATIVE_ADJUNCT="/opt/local"
+export NATIVE_ADJUNCT="@NATIVE_ADJUNCT@"
 export ASTBINDIR="${NATIVE_ADJUNCT}/ast/bin"
 export FLEX="${NATIVE_ADJUNCT}/bin/flex"
 export GNUXGETTEXT="${NATIVE_ADJUNCT}/bin/xgettext"
