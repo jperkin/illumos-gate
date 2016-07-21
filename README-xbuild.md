@@ -1,14 +1,13 @@
 ## Cross Building For ARM
 
-This guide details how to set everything up on SmartOS.  The procedure should
-be reasonably portable to other illumos distributions, you may just need to
-change some paths (and can probably avoid building illumos-extra and instead
-just use the native GCC 4.4.4).
+This guide details how to set everything up on OmniOS and SmartOS.  The
+procedure should be reasonably portable to other illumos distributions. you may
 
 ### Setup A SmartOS Build Zone
 
-This is the same as a regular SmartOS build zone, as detailed in the wiki
-page here: https://wiki.smartos.org/display/DOC/Building+SmartOS+on+SmartOS
+Obviously this section is specific to SmartOS.  This is the same as a regular
+SmartOS build zone, as detailed in the wiki page here:
+https://wiki.smartos.org/display/DOC/Building+SmartOS+on+SmartOS
 
 For example:
 
@@ -67,15 +66,22 @@ conflicts.
 $ curl -ko /var/tmp/sgstools.tgz https://download.joyent.com/pub/build/pkgsrc/sgstools.tgz
 $ pkg_add -C /dev/null /var/tmp/sgstools.tgz
 ```
+For OmniOS:
+
+```console
+$ pkg install illumos-tools gnu-make gnu-tar
+```
 
 ### Build illumos-extra
 
-This is required on SmartOS to get a suitable illumos compiler.  You may
-be able to skip this step on e.g. OmniOS and instead use the `/opt/gcc/4.4.4`
-compiler.
+This is required on SmartOS to get a suitable illumos compiler.  You should
+skip this step on e.g. OmniOS and instead use the `/opt/gcc-4.4.4` compiler,
+but you will still need to fetch the repository.
 
 ```console
 $ git clone -b arm-gate https://github.com/jperkin/illumos-extra.git ~/illumos-extra-arm
+
+Only run this on SmartOS
 $ cd ~/illumos-extra-arm
 $ gmake ARCH=i86pc STRAP=strap install
 ```
@@ -111,7 +117,12 @@ $ cd usr/src
 $ dmake setup
 $ cd lib/libc
 $ dmake install
-$ cd cmd/sgs
+
+On OmniOS you will also need to install libmapmalloc, skip this bit on SmartOS
+$ cd ../libmapmalloc
+$ dmake install
+
+$ cd ../../cmd/sgs
 $ dmake install
 ```
 
@@ -142,14 +153,21 @@ using the ARM cross bits we just built.
 
 ```console
 $ cd ~/illumos-extra-arm
+
+On OmniOS fix up some hardcoded paths.
+$ perl -pi -e 's,opt/gcc/4,opt/gcc-4,g' Makefile Makefile.defs gcc4/Makefile
+
 $ gmake ARCH=arm STRAP=strap LD_ALTEXEC=/opt/armtc/usr/bin/ld install
 ```
 
-Once that's done, you'll need to fix up the rpath there.  On OmniOS you'll
-probably want to substitute `/opt/gcc/4.4.4` for `/opt/local/lib` here:
+Once that's done, you'll need to fix up the rpath.
 
 ```console
+On SmartOS
 $ ./tools/setrpath proto-arm/usr/ /opt/armtc/usr/lib:/opt/local/lib:/lib:/usr/lib
+
+On OmniOS
+$ ./tools/setrpath proto-arm/usr/ /opt/armtc/usr/lib:/opt/gcc-4.4.4:/lib:/usr/lib
 ```
 
 Finally, you can copy all of that into your arm compiler toolchain directory
@@ -202,7 +220,11 @@ where things diverge between qemu and the Raspberry Pi.
 Install some build dependencies.
 
 ```console
+On SmartOS
 $ pkgin -y install glib2 pixman pkg-config
+
+On OmniOS
+$ pkg install autoconf automake gcc51 libtool math pkg-config
 ```
 
 Get qemu and build it.
@@ -211,7 +233,25 @@ Get qemu and build it.
 $ git clone https://github.com/rmustacc/qemu.git ~/qemu
 $ cd ~/qemu
 $ git submodule update --init dtc
+```
+
+On SmartOS, run:
+
+```console
 $ ./configure --cpu=i386 --target-list=arm-softmmu --disable-curses
+```
+
+On OmniOS, run:
+
+```console
+$ git submodule update --init pixman
+$ CC=gcc ./configure --cpu=i386 --target-list=arm-softmmu --disable-curses --install=/usr/ucb/install
+```
+
+On all run this to install.  It will install the resulting binary as
+`/usr/local/bin/qemu-system-arm`
+
+```console
 $ gmake ARFLAGS="cru" install
 ```
 
@@ -219,7 +259,7 @@ Booting qemu is very easy:
 
 ```console
 $ PROTO=~/illumos-gate-arm/proto/root_arm
-$ qemu-system-arm \
+$ /usr/local/bin/qemu-system-arm \
 	-kernel ${PROTO}/platform/qvpb/kernel/loader \
 	-initrd ${PROTO}/platform/qvpb/kernel/initrd \
 	-machine versatilepb \
