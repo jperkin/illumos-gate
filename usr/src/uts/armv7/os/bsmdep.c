@@ -20,20 +20,8 @@
  */
 
 /*
- * In addition to the entry points defined below, a board is also required to
- * implement the following functions:
- *
- * void armv6_bsmdep_l2cacheinfo(void);
- *
- * 	The board should set the value of 'armv6_l2cache_linesz'
- *
- * XXX Some day we should make all of this into modules that can be loaded early
- * by unix so that way we can have one kernel for all boards...
- */
-
-/*
  * While we would like to have a single consistent hrtime function across all of
- * the ARMv6 implementations, the chip itself leaves us rather lacking. As such,
+ * the ARMv7 implementations, the chip itself leaves us rather lacking. As such,
  * we have to rely on each ARM board or implementation to do the work for us,
  * alas.
  */

@@ -268,19 +268,15 @@ extern uint_t mmu_legacy_page_sizes;
 typedef	short	hpmctr_t;
 
 /*
- * On ARMv6 the layer two cache isn't architecturally defined. A given
- * implementation may or may not support it. The maximum size appears to be
- * 64-bytes; however, we end up having to defer to the individual platforms for
- * more information. Because of this, we also get and use the l1 cache
- * information. This is further complicated by the fact that the I-cache and
- * D-cache are separate usually; therefore we us the the l1 d-cache for
- * CPUSETSIZE().
+ * get the setsize of the current cpu
+ *
+ * This is complicated by the fact that the I-cache and D-cache may be
+ * separate.
  */
-extern int	armv6_cachesz, armv6_cache_assoc;
-extern int	armv6_l2cache_size, armv6_l2cache_linesz;
-#define	L2CACHE_ALIGN		armv6_l2cache_linesz
+extern int l2cache_sz, l2cache_linesz, l2cache_assoc;
+#define	L2CACHE_ALIGN		l2cache_linesz
 #define	L2CACHE_ALIGN_MAX	64
-#define	CPUSETSIZE()		(armv6_cachesz / armv6_cache_assoc)
+#define	CPUSETSIZE()		(l2cache_sz / l2cache_assoc)
 
 /*
  * Return the log2(pagesize(szc) / MMU_PAGESIZE) --- or the shift count

@@ -25,12 +25,6 @@
 extern "C" {
 #endif
 
-/*
- * The platform should fill in the values for armv7_l2cache_linesz and
- * armv7_l2cache_size.
- */
-extern void armv7_bsmdep_l2cacheinfo(void);
-
 #ifdef __cplusplus
 }
 #endif

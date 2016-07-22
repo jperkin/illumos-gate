@@ -98,7 +98,8 @@ data_sbarrier(void)
 
 #if defined(lint) || defined(__lint)
 
-/* The ARM architecture uses a modified Harvard Architecture which means that we
+/*
+ * The ARM architecture uses a modified Harvard Architecture which means that we
  * get the joys of fixing up this mess. Primarily this means that when we update
  * data, it gets written to do the data cache. That needs to be flushed to main
  * memory and then the instruction cache needs to be invalidated. This is

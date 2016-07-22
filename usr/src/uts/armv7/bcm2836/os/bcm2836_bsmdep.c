@@ -19,27 +19,3 @@
 
 #include <vm/vm_dep.h>
 
-void
-armv7_bsmdep_l2cacheinfo(void)
-{
-	/*
-	 * Per the BCM 2836 ARM peripherals manual, the L2 cache on the BCM
-	 * 2836 is actually used by the GPU, and from the CPU point of view,
-	 * we don't have one.
-	 *
-	 * This can be toggled on the rPi, but it appears that that toggling
-	 * can't be probed for.
-	 *
-	 * At present, we set these variables as if we owned the l2,
-	 * regardless of whether we in fact do.  This might be a terrible
-	 * idea.
-	 *
-	 * XXX: It might be reasonable to demand that we (the CPU) have the l2
-	 * cache, although since it is off-chip this may actually hinder
-	 * performance.
-	 */
-
-	armv6_l2cache_linesz = 32;
-	/* 128K per the BCM2836 manual, though we by default see none of it */
-	armv6_l2cache_size = 0x20000;
-}

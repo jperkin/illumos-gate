@@ -19,11 +19,3 @@
 
 #include <vm/vm_dep.h>
 
-void
-armv7_bsmdep_l2cacheinfo(void)
-{
-	/* Per L220 Cache Controller Technical Reference Manual */
-	armv6_l2cache_linesz = 32;
-	/* 128 Kb l2 cache, per DUI0425F */
-	armv6_l2cache_size = 0x20000;
-}
