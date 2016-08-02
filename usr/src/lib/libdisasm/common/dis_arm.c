@@ -277,6 +277,14 @@ extern size_t strlcat(char *, const char *, size_t);
 #define	ARM_UNI_CORT_TARG	0x0e000010
 #define	ARM_UNI_CODP_MASK	0x0f000010	/* coproc data processing */
 #define	ARM_UNI_CODP_TARG	0x0e000000
+#define	ARM_UNI_CLREX_MASK	0x057ff0ff	/* Clear exclusive */
+#define	ARM_UNI_CLREX_TARG	0x057ff01f
+#define	ARM_UNI_DSB_MASK	0x057ff0f0	/* Data sync barrier */
+#define	ARM_UNI_DSB_TARG	0x057ff040
+#define	ARM_UNI_DMB_MASK	0x057ff0f0	/* Data memory barrier */
+#define	ARM_UNI_DMB_TARG	0x057ff050
+#define	ARM_UNI_ISB_MASK	0x057ff0f0	/* Instruction sync barrier */
+#define	ARM_UNI_ISB_TARG	0x057ff060
 
 #define	ARM_UNI_CPS_IMOD_MASK	0x000c0000
 #define	ARM_UNI_CPS_IMOD_SHIFT	18
@@ -294,6 +302,8 @@ extern size_t strlcat(char *, const char *, size_t);
 #define	ARM_UNI_RFE_WBIT_MASK	0x00200000
 
 #define	ARM_UNI_BLX_IMM_MASK	0x00ffffff
+
+#define	ARM_UNI_DXB_OPT_MASK	0x0000000f
 
 /*
  * Definitions of the ARM Media instruction extension space.
@@ -588,6 +598,30 @@ typedef struct arm_dpi_inst {
 		arm_dpi_shifter_sreg_t dpii_ri;
 	} dpii_un;
 } arm_dpi_inst_t;
+
+/*
+ * Option limitations on DMB and DSB instructions.  SY (b1111) is the default
+ * and so is ommitted from output.  According to the manual any unsupported or
+ * reserved options must also be executed as SY, so we fill in the blanks too.
+ */
+static const char *arm_uni_dxb_options[] = {
+	"",
+	"",
+	"oshst",	/* 0010 */
+	"osh",		/* 0011 */
+	"",
+	"",
+	"nshst",	/* 0110 */
+	"nsh",		/* 0111 */
+	"",
+	"",
+	"ishst",	/* 1010 */
+	"ish",		/* 1011 */
+	"",
+	"",
+	"st",		/* 1110 */
+	"",		/* 1111 (SY) */
+};
 
 /*
  * This table contains the names of the load store multiple addressing modes.
@@ -1827,7 +1861,7 @@ arm_dis_coproc_rt(uint32_t in, char *buf, size_t buflen)
 static int
 arm_dis_uncond_insn(uint32_t in, char *buf, size_t buflen)
 {
-	int imm, sc;
+	int imm, opt, sc;
 	arm_reg_t rn, rm;
 	size_t len;
 
@@ -1971,6 +2005,12 @@ arm_dis_uncond_insn(uint32_t in, char *buf, size_t buflen)
 		return (0);
 	}
 
+	if ((in & ARM_UNI_CLREX_MASK) == ARM_UNI_CLREX_TARG) {
+		if ((snprintf(buf, buflen, "clrex")) >= buflen)
+			return (-1);
+		return (0);
+	}
+
 	if ((in & ARM_UNI_CODRT_MASK) == ARM_UNI_CODRT_TARG) {
 		return (arm_dis_coproc_lsdrt(in, buf, buflen));
 	}
@@ -1981,6 +2021,28 @@ arm_dis_uncond_insn(uint32_t in, char *buf, size_t buflen)
 
 	if ((in & ARM_UNI_CODP_MASK) == ARM_UNI_CORT_TARG) {
 		return (arm_dis_coproc_dp(in, buf, buflen));
+	}
+
+	if ((in & ARM_UNI_DMB_MASK) == ARM_UNI_DMB_TARG) {
+		opt = (in & ARM_UNI_DXB_OPT_MASK);
+		if ((snprintf(buf, buflen, "dmb %s",
+		    arm_uni_dxb_options[opt])) >= buflen)
+			return (-1);
+		return (0);
+	}
+
+	if ((in & ARM_UNI_DSB_MASK) == ARM_UNI_DSB_TARG) {
+		opt = (in & ARM_UNI_DXB_OPT_MASK);
+		if ((snprintf(buf, buflen, "dsb %s",
+		    arm_uni_dxb_options[opt])) >= buflen)
+			return (-1);
+		return (0);
+	}
+
+	if ((in & ARM_UNI_ISB_MASK) == ARM_UNI_ISB_TARG) {
+		if ((snprintf(buf, buflen, "isb")) >= buflen)
+			return (-1);
+		return (0);
 	}
 
 	/*
