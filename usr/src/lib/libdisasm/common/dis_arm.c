@@ -259,7 +259,7 @@ extern size_t strlcat(char *, const char *, size_t);
 /*
  * Unconditional instructions
  */
-#define	ARM_UNI_CPS_MASK	0x0ff10010	/* Change processor state */
+#define	ARM_UNI_CPS_MASK	0x0ff10020	/* Change processor state */
 #define	ARM_UNI_CPS_TARG	0x01000000
 #define	ARM_UNI_SE_MASK		0x0fff0078	/* Set endianess */
 #define	ARM_UNI_SE_TARG		0x01010000
@@ -1453,7 +1453,7 @@ arm_dis_status_regs(uint32_t in, char *buf, size_t buflen)
 /*
  * Here we need to handle the Control And DSP instruction extension space. This
  * consists of several different instructions. Unlike other extension spaces
- * there isn't as much tha tis similar here as there is stuff that is different.
+ * there isn't as much that is similar here as there is stuff that is different.
  * Oh well, that's a part of life. Instead we do a little bit of additional
  * parsing here.
  *
@@ -1606,8 +1606,8 @@ arm_dis_cdsp_ext(uint32_t in, char *buf, size_t buflen)
 	}
 
 	/*
-	 * If we got here then this is some other instructin we don't know
-	 * about in the instruction extensino space.
+	 * If we got here then this is some other instruction we don't know
+	 * about in the instruction extension space.
 	 */
 	return (-1);
 }
@@ -1874,8 +1874,8 @@ arm_dis_uncond_insn(uint32_t in, char *buf, size_t buflen)
 			return (-1);
 
 		if (in & ARM_UNI_CPS_MMOD_MASK)
-			if (snprintf(buf + len, buflen - len, "#%d",
-			    in & ARM_UNI_CPS_MODE_MASK) >= buflen - len)
+			if ((snprintf(buf + len, buflen - len, "#%d",
+			    in & ARM_UNI_CPS_MODE_MASK)) >= buflen - len)
 				return (-1);
 		return (0);
 	}
@@ -2369,7 +2369,7 @@ arm_dis_media(uint32_t in, char *buf, size_t buflen)
 
 /*
  * Each instruction in the ARM instruction set is a uint32_t and in our case is
- * LE. The upper four bits determine the condition code. If the conditoin code
+ * LE. The upper four bits determine the condition code. If the condition code
  * is undefined then we know to immediately jump there. Otherwise we go use the
  * next three bits to determine where we should go next and how to further
  * process the instruction in question. The ARM instruction manual doesn't
