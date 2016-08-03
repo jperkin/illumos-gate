@@ -158,7 +158,7 @@ cpuid_fill_caches(arm_cpuid_t *cpd)
 	if (!cpd->ac_caches[B_TRUE][0].acc_exists &&
 	    (!cpd->ac_caches[B_FALSE][0].acc_exists ||
 	    !cpd->ac_caches[B_FALSE][0].acc_unified))
-		bop_panic("no L1 instructian cache detected");
+		bop_panic("no L1 instruction cache detected");
 
 	if (!cpd->ac_caches[B_FALSE][1].acc_exists)
 		bop_panic("no L2 data cache detected");
@@ -188,7 +188,8 @@ cpuid_verify(void)
 	/* v7 vmsa */
 	vmsa = extract(cpd->ac_mmfr[0], ARM_CPUID_MMFR0_STATE0_MASK,
 	    ARM_CPUID_MMFR0_STATE0_SHIFT);
-	if (vmsa != ARM_CPUID_MEM_VMSA_V7) {
+	/* Support V7 and above.  Currently we do nothing with PXN or LPAE */
+	if (vmsa < ARM_CPUID_MEM_VMSA_V7) {
 		bop_printf(NULL, "invalid vmsa setting, found 0x%x\n", vmsa);
 		bop_panic("unsupported cpu");
 	}
@@ -237,8 +238,7 @@ cpuid_valid_fpident(uint32_t ident)
 	arm_cpuid_vfp_arch_t vfp;
 
 	vfp = extract(ident, ARM_CPUID_VFP_ARCH_MASK, ARM_CPUID_VFP_ARCH_SHIFT);
-	// XXX: _V3_V2BASE? _V3_NOBASE? _V3_V3BASE?
-	if (vfp != ARM_CPUID_VFP_ARCH_V2) {
+	if (vfp != ARM_CPUID_VFP_ARCH_V3_V3BASE) {
 		bop_printf(NULL, "unsupported vfp version: %x\n", vfp);
 		bop_panic("unsupported CPU");
 	}
