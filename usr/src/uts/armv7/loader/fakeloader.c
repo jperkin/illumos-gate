@@ -119,7 +119,7 @@ fakeload_ultostr(unsigned long value)
 	char buf[16];
 	ulong_t t, val = (ulong_t)value;
 	char c;
-	char *ptr = &(buf[14]);
+	char *ptr = &(buf[15]);
 	buf[15] = '\0';
 
 	do {
