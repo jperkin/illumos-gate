@@ -83,15 +83,12 @@ armboot_mmu_map_4k(armpte_t *l2table, uintptr_t pa, uintptr_t va, int prot)
 	/* XXX Assume it's not device memory */
 	l2pte->ale_bbit = 1;
 	l2pte->ale_cbit = 1;
-	l2pte->ale_tex = 1;
 	l2pte->ale_sbit = 1;
-	if (prot & PF_W) {
-		l2pte->ale_ap2 = 1;
-		l2pte->ale_ap = 1;
-	} else {
-		l2pte->ale_ap2 = 0;
-		l2pte->ale_ap = 1;
-	}
+	l2pte->ale_ap = ARMPT_AP_PRIV;
+	l2pte->ale_ap2 = ARMPT_AP2_RO;
+	/* XXX: Permissions fault otherwise */
+	//if (prot & PF_W)
+		l2pte->ale_ap2 = ARMPT_AP2_RW;
 	l2pte->ale_ngbit = 0;
 	l2pte->ale_addr = ARMPT_PADDR_TO_L2ADDR(pa);
 
@@ -122,20 +119,16 @@ armboot_mmu_map_1mb(uintptr_t pa, uintptr_t va, int prot)
 	/* XXX Assume it's not device memory */
 	l1e->al_bbit = 1;
 	l1e->al_cbit = 1;
-	l1e->al_tex = 1;
 	l1e->al_sbit = 1;
 
 	if (!(prot & PF_X))
 		l1e->al_xn = 1;
 	l1e->al_domain = 0;
 
-	if (prot & PF_W) {
-		l1e->al_ap2 = 1;
-		l1e->al_ap = 1;
-	} else {
-		l1e->al_ap2 = 0;
-		l1e->al_ap = 1;
-	}
+	l1e->al_ap = ARMPT_AP_PRIV;
+	l1e->al_ap2 = ARMPT_AP2_RO;
+	if (prot & PF_W)
+		l1e->al_ap2 = ARMPT_AP2_RW;
 	l1e->al_ngbit = 0;
 	l1e->al_issuper = 0;
 	l1e->al_addr = ARMPT_PADDR_TO_L1SECT(pa);
