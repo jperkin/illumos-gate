@@ -260,13 +260,14 @@ Booting qemu is very easy:
 ```console
 $ PROTO=~/illumos-gate-arm/proto/root_arm
 $ /usr/local/bin/qemu-system-arm \
-	-kernel ${PROTO}/platform/qvpb/kernel/loader \
-	-initrd ${PROTO}/platform/qvpb/kernel/initrd \
+	-kernel ${PROTO}/platform/qve/kernel/loader \
+	-initrd ${PROTO}/platform/qve/kernel/initrd \
 	-machine versatilepb \
-	-cpu arm1176 \
+	-cpu cortex-a15 \
 	-m 512 \
 	-no-reboot \
 	-nographic \
+	-monitor stdio \
 	-append "kernel /platform/qvpb/kernel/unix -Bconsole=uart"
 ```
 
