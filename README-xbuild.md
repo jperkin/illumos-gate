@@ -1,7 +1,7 @@
 ## Cross Building For ARM
 
 This guide details how to set everything up on OmniOS and SmartOS.  The
-procedure should be reasonably portable to other illumos distributions. you may
+procedure should be reasonably portable to other illumos distributions.
 
 ### Setup A SmartOS Build Zone
 
