@@ -72,23 +72,24 @@ For OmniOS:
 $ pkg install illumos-tools gnu-make gnu-tar
 ```
 
-### Build illumos-extra
+### Build illumos-extra (SmartOS)
 
 This is required on SmartOS to get a suitable illumos compiler.  You should
-skip this step on e.g. OmniOS and instead use the `/opt/gcc-4.4.4` compiler,
-but you will still need to fetch the repository.
+skip this step on e.g. OmniOS and instead use the `/opt/gcc-4.4.4` compiler.
 
 ```console
-$ git clone -b arm-gate https://github.com/jperkin/illumos-extra.git ~/illumos-extra-arm
-
 Only run this on SmartOS
+$ git clone https://github.com/joyent/illumos-extra.git ~/illumos-extra
 $ cd ~/illumos-extra-arm
-$ gmake ARCH=i86pc STRAP=strap install
+$ gmake ARCH=i86pc STRAP=strap install_strap
 ```
+
+This should result in a GCC 4.4.4 build in `~/illumos-extra/proto` which we can
+use to build illumos.
 
 ### Build illumos-gate With ARM Support
 
-Fetch the repository into the same directory as illumos-extra-arm
+Fetch the repository into the same directory as illumos-extra
 
 ```console
 $ git clone -b arm-gate https://github.com/jperkin/illumos-gate.git ~/illumos-gate-arm
@@ -117,11 +118,8 @@ $ cd usr/src
 $ dmake setup
 $ cd lib/libc
 $ dmake install
-
-On OmniOS you will also need to install libmapmalloc, skip this bit on SmartOS
 $ cd ../libmapmalloc
 $ dmake install
-
 $ cd ../../cmd/sgs
 $ dmake install
 ```
@@ -148,10 +146,12 @@ $ exit
 
 ### Build ARM-native illumos-extra
 
-We now go back into illumos-extra-arm but this time build native ARM tools
-using the ARM cross bits we just built.
+There is a special version of illumos-extra with a suitable compiler and tools
+for cross-building to ARM.  Fetch it to `~/illumos-extra-arm` and build the
+bootstrap target for ARM.
 
 ```console
+$ git clone -b arm-gate https://github.com/rmustacc/illumos-extra.git ~/illumos-extra-arm
 $ cd ~/illumos-extra-arm
 
 On OmniOS fix up some hardcoded paths.
@@ -207,8 +207,8 @@ $ dmake install
 $ exit
 ```
 
-You now have a lovely unix and boot_archive pair in bcm2835/unix (Raspberry
-Pi) and qvpb/unix (qemu versatilepb).
+You should now have a lovely unix and boot_archive pair in `armv7/bcm2836/unix`
+which can be booted either on real hardware (Raspberry Pi 2+) or in qemu.
 
 ### Boot
 
@@ -230,7 +230,7 @@ $ pkg install autoconf automake gcc51 libtool math pkg-config
 Get qemu and build it.
 
 ```console
-$ git clone https://github.com/rmustacc/qemu.git ~/qemu
+$ git clone https://github.com/jperkin/qemu.git ~/qemu
 $ cd ~/qemu
 $ git submodule update --init dtc
 ```
@@ -259,19 +259,19 @@ Booting qemu is very easy:
 
 ```console
 $ PROTO=~/illumos-gate-arm/proto/root_arm
+$ UTSDIR=~/illumos-gate-arm/usr/src/uts
 $ /usr/local/bin/qemu-system-arm \
-	-kernel ${PROTO}/platform/qve/kernel/loader \
-	-initrd ${PROTO}/platform/qve/kernel/initrd \
-	-machine versatilepb \
-	-cpu cortex-a15 \
+	-kernel ${UTSDIR}/armv7/bcm2836/loader/debug32/loader.elf \
+	-initrd ${PROTO}/platform/bcm2836/kernel/initrd \
+	-machine raspi2 \
 	-m 512 \
 	-no-reboot \
 	-nographic \
-	-monitor stdio \
-	-append "kernel /platform/qvpb/kernel/unix -Bconsole=uart"
+	-append "kernel /platform/bcm2836/kernel/unix -Bconsole=uart"
 ```
 
-The loader and kernel messages should appear in the same terminal.
+The loader and kernel messages should appear in the same terminal.  To get
+to the QEMU monitor hit `CTRL-a` then `c`.
 
 #### Hardware
 
@@ -288,7 +288,7 @@ Booting on real hardware is a bit more involved.
 
   c) Create a cmdline.txt on the partition:
 
-	kernel /platform/bcm2835/kernel/unix -Bconsole=uart
+	kernel /platform/bcm2836/kernel/unix -Bconsole=uart
 
   d) Place Raspberry Pi firmware onto the partition.  You can download
      latest firmware from
@@ -303,4 +303,4 @@ Booting on real hardware is a bit more involved.
 	356060e0f44742d8835294a211b812efcac29f66  start.elf
 	b7f01f90d995a36c9d765fd1f4d95a5fcdfd7e41  start_x.elf
 
-  e) Copy $PROTO/platform/bcm2835/kernel/{loader,initrd} onto the partition.
+  e) Copy $PROTO/platform/bcm2836/kernel/{loader,initrd} onto the partition.
