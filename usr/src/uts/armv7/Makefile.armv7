@@ -33,14 +33,11 @@ UNAME_M		= $(PLATFORM)
 #
 # Definitions for the platform-specific /platform directories.
 #
-#	We have on IMPLEMENTATION per board that we support. Currently we only
-#	support one real board and the qemu virtualized version of another
-#	board. The requirements for IMPLEMENTATOINS will most likely
-#	change over time.
+#	We have one IMPLEMENTATION per board that we support. Currently we only
+#	support one real board (Raspberry Pi 2+).  The requirements for
+#	IMPLEMENTATIONS will most likely change over time.
 #
-IMPLEMENTATIONS = \
-	bcm2836 \
-	qve
+IMPLEMENTATIONS = bcm2836
 
 UNIX_DIR	= $(UTSBASE)/$(PLATFORM)/bcm2836/unix
 GENLIB_DIR	= $(UTSBASE)/arm/genunix
