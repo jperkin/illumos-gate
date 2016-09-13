@@ -156,7 +156,7 @@ include ../Makefile.targ
 #
 XRDIRS	= ../i86pc ../intel ../common
 
-XRPRUNE	= sun4u sun4v sun4 sparc armv6 arm
+XRPRUNE	= sun4u sun4v sun4 sparc armv7 arm
 
 cscope.out tags: FRC
 	$(XREF) -x $@

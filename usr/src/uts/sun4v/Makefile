@@ -301,7 +301,7 @@ include ../Makefile.targ
 # sun4v-related directories.
 #
 XRDIRS	= ../sun4v ../sun4 ../sfmmu ../sparc ../sun ../common
-XRPRUNE = i86pc intel sun4u armv6 arm
+XRPRUNE = i86pc intel sun4u armv7 arm
 
 cscope.out tags: FRC
 	$(XREF) -x $@
