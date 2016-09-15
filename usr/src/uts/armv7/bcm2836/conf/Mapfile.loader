@@ -26,7 +26,7 @@ LOAD_SEGMENT text {
 	NOHDR;
 	PADDR = 0x8000;
 	VADDR = 0x8000;
-	MAX_SIZE = 0x2000;
+	MAX_SIZE = 0x3000;
 	OS_ORDER = .text.init .text;
 	ASSIGN_SECTION {
 		IS_NAME = .text.init;

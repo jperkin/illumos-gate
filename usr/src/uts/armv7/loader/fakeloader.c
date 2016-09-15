@@ -143,7 +143,7 @@ fakeload_selfmap(atag_header_t *chain)
 	aim.aim_header.ah_tag = ATAG_ILLUMOS_MAPPING;
 	aim.aim_paddr = 0x7000;
 	aim.aim_vaddr = aim.aim_paddr;
-	aim.aim_plen = 0x3000;
+	aim.aim_plen = 0x4000;
 	aim.aim_vlen = aim.aim_plen;
 	aim.aim_mapflags = PF_R | PF_X | PF_LOADER;
 	atag_append(chain, &aim.aim_header);
