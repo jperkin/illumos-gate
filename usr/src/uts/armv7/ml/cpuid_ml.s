@@ -24,7 +24,7 @@
 #if defined(lint) || defined(__lint)
 
 uint32_t
-arm_cpuid_idreg()
+arm_cpuid_midr()
 {}
 
 uint32_t
@@ -91,16 +91,12 @@ uint32_t
 arm_cpuid_mvfr1()
 {}
 
-uint32_t
-arm_cpuid_ctr()
-{}
-
 #else	/* __lint */
 
-	ENTRY(arm_cpuid_idreg)
+	ENTRY(arm_cpuid_midr)
 	mrc	p15, 0, r0, c0, c0, 0
 	bx	lr
-	SET_SIZE(arm_cpuid_idreg)
+	SET_SIZE(arm_cpuid_midr)
 
 	ENTRY(arm_cpuid_pfr0)
 	mrc	p15, 0, r0, c0, c1, 0
@@ -181,9 +177,18 @@ arm_cpuid_ctr()
 	vmrs	r0, MVFR1
 	bx	lr
 	SET_SIZE(arm_cpuid_mvfr1)
-
-	ENTRY(arm_cpuid_ctr)
-	mrc	p15, 0, r0, c0, c0, 1
-	bx	lr
-	SET_SIZE(arm_cpuid_ctr)
 #endif /* __lint */
+
+	ENTRY(arm_cpuid_clidr)
+	mrc	p15, 1, r0, c0, c0, 1
+	bx	lr
+	SET_SIZE(arm_cpuid_clidr)
+
+	ENTRY(arm_cpuid_ccsidr)
+	lsl	r0, r0, #1
+	cmp	r1, #0				/* icache == B_FALSE */
+	orrne	r0, r0, #1
+	mcr	p15, 2, r0, c0, c0, 0		/* write CSSELR */
+	mrc	p15, 1, r0, c0, c0, 0		/* read selected CCSIDR */
+	bx	lr
+	SET_SIZE(arm_cpuid_ccsidr)

@@ -94,12 +94,11 @@ size_t pse_table_size;		/* Number of mutexes in pse_mutex[] */
 int pse_shift;			/* log2(pse_table_size) */
 
 /*
- * Cache size information filled in via cpuid and startup_cache()
+ * Cache size information filled in via cpuid.
  */
-int armv6_cachesz;		/* Total size of the l1 cache */
-int armv6_cache_assoc;		/* L1 cache associativity */
-int armv6_l2cache_linesz;	/* Size of a line in the l2 cache */
-int armv6_l2cache_size;		/* Total size of the l2 cache */
+int l2cache_sz;
+int l2cache_linesz ;
+int l2cache_assoc;
 
 /*
  * Do basic set up.

@@ -163,7 +163,9 @@ typedef enum {
 	ARM_CPUID_MEM_VMSA_NONE = 0x0,
 	ARM_CPUID_MEM_VMSA_IMPL = 0x1,
 	ARM_CPUID_MEM_VMSA_V6 = 0x2,
-	ARM_CPUID_MEM_VMSA_V7 = 0x3
+	ARM_CPUID_MEM_VMSA_V7 = 0x3,
+	ARM_CPUID_MEM_VMSA_V7_PXN = 0x4,
+	ARM_CPUID_MEM_VMSA_V7_EAE = 0x5,
 } arm_cpuid_mem_vmsa_t;
 
 /* PMSA Support */
@@ -249,11 +251,6 @@ typedef enum {
 /* Memory barrier */
 #define	ARM_CPUID_MMFR2_STATE5_MASK	0x00f00000
 #define	ARM_CPUID_MMFR2_STATE5_SHIFT	20
-typedef enum {
-	ARM_CPUID_MEM_BARRIER_NONE = 0x0,
-	ARM_CPUID_MEM_BARRIER_CP15 = 0x1,
-	ARM_CPUID_MEM_BARRIER_INSTR = 0x2,
-} arm_cpuid_mem_barrier_t;
 
 /* WFI stall */
 #define	ARM_CPUID_MMFR2_STATE6_MASK	0x0f000000
