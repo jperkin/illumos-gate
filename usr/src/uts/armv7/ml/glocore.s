@@ -111,7 +111,6 @@ _locore_start(struct boot_syscalls *sysp, struct bootops *bop)
 	 * then main. We're never going back so we shouldn't feel compelled to
 	 * preserve any registers.
 	 *
-	 *  o Enable our I/D-caches
 	 *  o Save the boot syscalls and bootops for later
 	 *  o Set up our stack to be the real stack of t0stack.
 	 *  o Save t0 as curthread
@@ -160,14 +159,6 @@ _locore_start(struct boot_syscalls *sysp, struct bootops *bop)
 	 */
 	ldr	r0, =t0
 	mcr	p15, 0, r0, c13, c0, 4
-
-	/*
-	 * Go ahead now and enable the L1 I/D caches.  
-	 */
-	mrc	p15, 0, r0, c1, c0, 0
-	orr	r0, #0x04	/* D-cache */
-	orr	r0, #0x1000	/* I-cache */
-	mcr	p15, 0, r0, c1, c0, 0
 
 	/*
 	 * mlsetup() takes the struct regs as an argument. main doesn't take
