@@ -98,7 +98,8 @@ data_sbarrier(void)
 
 #if defined(lint) || defined(__lint)
 
-/* The ARM architecture uses a modified Harvard Architecture which means that we
+/*
+ * The ARM architecture uses a modified Harvard Architecture which means that we
  * get the joys of fixing up this mess. Primarily this means that when we update
  * data, it gets written to do the data cache. That needs to be flushed to main
  * memory and then the instruction cache needs to be invalidated. This is
@@ -169,51 +170,124 @@ armv7_text_flush(void)
 	mrc	p15, 0, r0, c1, c0, 0
 	orr	r0, #0x1000
 	mcr	p15, 0, r0, c1, c0, 0
+	bx	lr
 	SET_SIZE(armv7_icache_enable)
 
 	ENTRY(armv7_dcache_enable)
 	mrc	p15, 0, r0, c1, c0, 0
 	orr	r0, #0x4
 	mcr	p15, 0, r0, c1, c0, 0
+	bx	lr
 	SET_SIZE(armv7_dcache_enable)
 
 	ENTRY(armv7_icache_disable)
 	mrc	p15, 0, r0, c1, c0, 0
 	bic	r0, #0x1000
 	mcr	p15, 0, r0, c1, c0, 0
+	bx	lr
 	SET_SIZE(armv7_icache_disable)
 
 	ENTRY(armv7_dcache_disable)
 	mrc	p15, 0, r0, c1, c0, 0
 	bic	r0, #0x4
 	mcr	p15, 0, r0, c1, c0, 0
+	bx	lr
 	SET_SIZE(armv7_dcache_disable)
 
 	ENTRY(armv7_icache_inval)
 	mov	r0, #0
 	mcr	p15, 0, r0, c7, c5, 0		@ Invalidate i-cache
+	isb
 	bx	lr
 	SET_SIZE(armv7_icache_inval)
 
+	/*
+	 * The ARMv7 cache invalidation functions are very similar apart
+	 * from the operation used and to what level, so we use a common
+	 * macro for all.
+	 *
+	 * Valid options:
+	 *
+	 *  op: c6 (invalidate), c10 (clean), c14 (inv+clean aka flush)
+	 *  all: 0 (PoU aka L1), 1 (PoC, default)
+	 */
+	.macro	dcache_operation op:req all=1
+	mrc	p15, 1, r0, c0, c0, 1		@ r0 = CLIDR
+	.if	\all
+	tst	r0, #0x07000000			@ Check LoC
+	.else
+	tst	r0, #0x38000000			@ Check LoU
+	.endif
+	beq	4f				@ No cache levels
+	mov	r3, #0				@ Start with CL1
+1:	mcr	p15, 2, r3, c0, c0, 0		@ put level (r3) in CSSELR
+	isb					@ sync to CSSIDR
+	mrc	p15, 1, r0, c0, c0, 0		@ r0 = CSSIDR
+	ubfx	ip, r0, #0, #3			@ ip = LineSize
+	add	ip, ip, #4			@ ip += Level offset
+	ubfx	r2, r0, #13, #15		@ r2 = NumSets - 1
+	lsl	r2, r2, ip			@ r2 = shift by log2(LineSize)
+	orr	r3, r3, r2			@ r3 |= Set
+	mov	r1, #1
+	lsl	r1, r1, ip			@ r1 = Set Decr
+	ubfx	ip, r0, #3, #10			@ ip = NumWays
+	clz	r2, ip				@ r2 = #bits to Way MSB
+	lsl	ip, ip, r2			@ ip = shifted into position
+	mov	r0, #1
+	lsl	r2, r0, r2			@ r2 = Way Decr
+	mov	r0, r3				@ r0 = Sets/Level
+	orr	r3, r3, ip			@ r3 |= Way
+	bfc	r0, #0, #4			@ r0 = NumSets - 1
+	sub	r2, r2, r0			@ r2 -= NumSets - 1
+2:	mcr	p15, 0, r3, c7, \op, 2		@ op = inval/clean/clean+inv
+	cmp	r3, #15
+	bls	3f
+	ubfx	r0, r3, #4, #18
+	cmp	r0, #0
+	subne	r3, r3, r1			@ if (set) set--
+	subeq	r3, r3, r2			@ if (!set) way--
+	b	2b				@ keep going until done
+3:	mrc	p15, 1, r0, c0, c0, 1		@ r0 = CLIDR
+	.if	\all
+	ubfx	ip, r0, #24, #3			@ ip = LoC
+	.else
+	ubfx	ip, r0, #27, #3			@ ip = LoU
+	.endif
+	add	r3, r3, #2			@ r3 = next cache level
+	cmp	r3, ip, lsl #1			@ are we done to LoC/LoU?
+	blt	1b				@ no, go around again
+4:	mov	r0, #0				@ Default back to CL1
+	mcr	p15, 2, r0, c0, c0, 0		@ Store cache level
+	dsb	st
+	isb
+	.endm
+
 	ENTRY(armv7_dcache_inval)
-	mov	r0, #0
-	mcr	p15, 0, r0, c7, c6, 0		@ Invalidate d-cache
-	dsb
+	dcache_operation c6			@ Invalidate d-cache
 	bx	lr
 	SET_SIZE(armv7_dcache_inval)
 
 	ENTRY(armv7_dcache_flush)
-	mov	r0, #0
-	mcr	p15, 0, r0, c7, c10, 4		@ Flush d-cache
-	dsb
+	dcache_operation c14			@ Flush d-cache
 	bx	lr
 	SET_SIZE(armv7_dcache_flush)
 	
 	ENTRY(armv7_text_flush_range)
-	add	r1, r1, r0
-	sub	r1, r1, r0
-	mcrr	p15, 0, r1, r0, c5		@ Invalidate i-cache range
-	mcrr	p15, 0, r1, r0, c12		@ Flush d-cache range
+	mov	r2, #0
+	mcr	p15, 2, r2, c0, c0, 0		@ Set CL1
+	mrc	p15, 1, ip, c0, c0, 0		@ Read CCSIDR
+	and	ip, ip, #7			@ LineSize[2:0] = log2(size) - 2
+	mov	r2, #16
+	lsl	ip, r2, ip			@ ip = cache line size
+	sub	r2, ip, #1			@ r2 = linesize mask
+	and	r3, r0, r2			@ r3 = offset of requested addr
+	add	r1, r1, r3			@ Increase len to line size
+	bic	r0, r0, r2			@ Align start to line address
+1:	mcr	p15, 0, r0, c7, c5, 1		@ Inval i-cache range (ICIMVAU)
+	mcr	p15, 0, r0, c7, c14, 1		@ Flush d-cache range (DCCIMVAC)
+	add	r0, r0, ip			@ Go to next cache line
+	subs	r1, r1, ip			@ Are we done?
+	bhi	1b
 	dsb
 	isb
 	bx	lr
