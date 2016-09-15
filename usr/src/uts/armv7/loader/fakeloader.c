@@ -605,6 +605,8 @@ fakeload_init(void *ident, void *ident2, void *atag)
 
 	fakeload_backend_init();
 	fakeload_puts("Hello from the loader\n");
+	fakeload_leave_hyp();
+
 	initrd = (atag_initrd_t *)atag_find(chain, ATAG_INITRD2);
 	if (initrd == NULL)
 		fakeload_panic("missing the initial ramdisk\n");

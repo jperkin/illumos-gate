@@ -51,6 +51,7 @@ extern void fakeload_backend_addmaps(atag_header_t *);
 /*
  * ASM operations
  */
+extern void fakeload_leave_hyp(void);
 extern void fakeload_unaligned_enable(void);
 extern void fakeload_mmu_enable(void);
 extern void fakeload_pt_setup(uintptr_t);

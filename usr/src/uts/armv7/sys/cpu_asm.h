@@ -21,12 +21,14 @@ extern "C" {
  */
 #define	CPU_MODE_USR	0x10	/* User mode */
 #define	CPU_MODE_FIQ	0x11	/* Fast interrupt */
+#define	CPU_MODE_IRQ	0x12	/* Interrupt */
 #define	CPU_MODE_SVC	0x13	/* Supervisor */
 #define	CPU_MODE_MON	0x16	/* Monitor (security extension) */
 #define	CPU_MODE_ABT	0x17	/* Abort (memory/insn access or breakpoint) */
-#define	CPU_MODE_IRQ	0x18	/* Interrupt */
+#define	CPU_MODE_HYP	0x1a	/* Hypervisor */
 #define	CPU_MODE_UND	0x1b	/* Undefined instruction */
 #define	CPU_MODE_SYS	0x1f	/* System */
+#define	CPU_MODE_MASK	0x1f
 
 /*
  * ARM Exceptions (by their index in the exception vector)

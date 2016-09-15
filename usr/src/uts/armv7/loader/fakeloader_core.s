@@ -19,7 +19,9 @@
  */
 
 #include <sys/asm_linkage.h>
+#include <sys/cpu_asm.h>
 
+	.arch_extension virt
 /*
  * We put _start into the .text.init section so we can more easily shove it
  * at the front of the .text.
@@ -45,6 +47,23 @@ fakeload_unaligned_enable(void)
 {}
 
 #else 	/* __lint */
+
+	ENTRY(fakeload_leave_hyp)
+	/* Check if we are in Hypervisor mode */
+	mrs	r0, cpsr
+	and	r1, r0, #(CPU_MODE_MASK)
+	teq	r1, #(CPU_MODE_HYP)
+	bxne	lr
+
+	/* Transition to Supervisor mode */
+	mrs	r1, sp_hyp
+	msr	sp_svc, r1
+	bic	r0, r0, #(CPU_MODE_MASK)
+	orr	r0, r0, #(CPU_MODE_SVC)
+	msr	spsr_hyp, r0
+	msr	elr_hyp, lr
+	eret
+	SET_SIZE(fakeload_leave_hyp)
 
 	/*
 	 * Fix up alignment by turning off A and by turning on U.
