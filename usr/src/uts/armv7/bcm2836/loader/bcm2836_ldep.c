@@ -83,17 +83,6 @@ uart_nop(void)
 	__asm__ volatile("mov r0, r0\n" : : :);
 }
 
-void fakeload_backend_putc(int);
-
-static void
-fakeload_puts(const char *str)
-{
-	while (*str != '\0') {
-		fakeload_backend_putc(*str);
-		str++;
-	}
-}
-
 void
 fakeload_backend_init(void)
 {
