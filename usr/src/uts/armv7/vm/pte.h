@@ -29,13 +29,17 @@ extern "C" {
 typedef uint32_t armpte_t;
 
 /*
+ * Described in section B3.5.1 of ARMv7
+ */
+
+/*
  * ARM L1 Page Table Entry that points to an L2 table
  */
 typedef struct arm_l1pt {
 	uint32_t al_type:2;
-	uint32_t al_ign0:1;
+	uint32_t al_pxn:1;
 	uint32_t al_ns:1;
-	uint32_t al_ign1:1;
+	uint32_t al_ign0:1;
 	uint32_t al_domain:4;
 	uint32_t al_imp:1;
 	uint32_t al_ptaddr:22;
@@ -84,13 +88,14 @@ typedef struct arm_l2le {
 	uint32_t alle_ident:2;
 	uint32_t alle_bbit:1;
 	uint32_t alle_cbit:1;
-	uint32_t alle_ign:3;
 	uint32_t alle_ap:2;
+	uint32_t alle_ign:3;
+	uint32_t alle_ap2:1;
 	uint32_t alle_sbit:1;
 	uint32_t alle_ngbit:1;
 	uint32_t alle_tex:3;
 	uint32_t alle_xn:1;
-	uint32_t alle_addr:17;
+	uint32_t alle_addr:16;
 } arm_l2le_t;
 
 #define	ARMPT_L1_SIZE	(16 * 1024)
@@ -114,6 +119,19 @@ typedef struct arm_l2le {
 #define	ARMPT_L2_TYPE_INVALID	0x0
 #define	ARMPT_L2_TYPE_LARGE	0x1
 #define	ARMPT_L2_TYPE_MASK	0x3
+
+/*
+ * Access permissions using the simplified ARMv7 model.
+ *
+ * AP[1:0] defines whether the access is priv or priv+unpriv
+ * AP[2] defines whether the AP access is read-only or read-write
+ *
+ * ARMv7 ARM B3.7.1
+ */
+#define	ARMPT_AP_PRIV	0x1	/* PL1+PL2 access */
+#define	ARMPT_AP_UNPRIV	0x3	/* PL1+PL2 + Unprivileged access */
+#define	ARMPT_AP2_RW	0x0
+#define	ARMPT_AP2_RO	0x1
 
 #define	ARMPT_VADDR_TO_L2E(vaddr)	((vaddr & 0xff000) >> 12)
 #define	ARMPT_PADDR_TO_L2ADDR(paddr)	(paddr >> 12)

@@ -90,7 +90,7 @@ fakeload_pt_setup(uintptr_t ptroot)
 	 * following in order:
 	 *
 	 * o Set the TTBCR to always use TTBR0
-	 * o Set domain 0 to manager mode
+	 * o Set domain 0 to client mode
 	 * o Program the Page table root
 	 */
 	ENTRY(fakeload_pt_setup)
@@ -98,8 +98,8 @@ fakeload_pt_setup(uintptr_t ptroot)
 	mov	r1, #0
 	mcr	p15, 0, r1, c2, c0, 2
 
-	/* set domain 0 to manager mode */
-	mov	r1, #3
+	/* set domain 0 to client mode */
+	mov	r1, #1
 	mcr	p15, 0, r1, c3, c0, 0
 
 	/* set TTBR0 to page table root */
