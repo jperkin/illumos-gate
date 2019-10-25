@@ -39,7 +39,7 @@
  */
 
 /* If you modify this file, you must increment CW_VERSION */
-#define	CW_VERSION	"5.0"
+#define	CW_VERSION	"5.1"
 
 /*
  * -#		Verbose mode
@@ -343,7 +343,7 @@ typedef struct xarch_table {
  * The translation table for the -xarch= flag used in the Studio compilers.
  */
 static const xarch_table_t xtbl[] = {
-#if defined(__x86)
+#if defined(CW_TARGET_i386)
 	{ "generic",	SS11, {NULL} },
 	{ "generic64",	(SS11|M64), { "-m64", "-mtune=opteron" } },
 	{ "amd64",	(SS11|M64), { "-m64", "-mtune=opteron" } },
@@ -351,7 +351,7 @@ static const xarch_table_t xtbl[] = {
 	{ "pentium_pro", SS11,	{ "-march=pentiumpro" } },
 	{ "sse",	SS11, { "-msse", "-mfpmath=sse" } },
 	{ "sse2",	SS11, { "-msse2", "-mfpmath=sse" } },
-#elif defined(__sparc)
+#elif defined(CW_TARGET_sparc)
 	{ "generic",	(SS11|M32), { "-m32", "-mcpu=v8" } },
 	{ "generic64",	(SS11|M64), { "-m64", "-mcpu=v9" } },
 	{ "v8",		(SS11|M32), { "-m32", "-mcpu=v8", "-mno-v8plus" } },
@@ -366,18 +366,22 @@ static const xarch_table_t xtbl[] = {
 	{ "sparc",	SS12, { "-mcpu=v9", "-mv8plus" } },
 	{ "sparcvis",	SS12, { "-mcpu=ultrasparc", "-mvis" } },
 	{ "sparcvis2",	SS12, { "-mcpu=ultrasparc3", "-mvis" } }
+#elif defined(CW_TARGET_arm)
+	{ "generic",	SS12, { "-march=armv7-a", "-mfpu=vfpv3-d16", "-mhard-float" } }
+#else
+#error Unknown CW_TARGET
 #endif
 };
 
 static int xtbl_size = sizeof (xtbl) / sizeof (xarch_table_t);
 
 static const char *xchip_tbl[] = {
-#if defined(__x86)
+#if defined(CW_TARGET_i386)
 	"386",		"-mtune=i386", NULL,
 	"486",		"-mtune=i486", NULL,
 	"pentium",	"-mtune=pentium", NULL,
 	"pentium_pro",  "-mtune=pentiumpro", NULL,
-#elif defined(__sparc)
+#elif defined(CW_TARGET_sparc)
 	"super",	"-mtune=supersparc", NULL,
 	"ultra",	"-mtune=ultrasparc", NULL,
 	"ultra3",	"-mtune=ultrasparc3", NULL,
@@ -397,19 +401,19 @@ static const char *xcode_tbl[] = {
 };
 
 static const char *xtarget_tbl[] = {
-#if defined(__x86)
+#if defined(CW_TARGET_i386)
 	"pentium_pro",	"-march=pentiumpro", NULL,
-#endif	/* __x86 */
+#endif	/* i386 */
 	NULL,		NULL
 };
 
 static const char *xregs_tbl[] = {
-#if defined(__sparc)
+#if defined(CW_TARGET_sparc)
 	"appl",		"-mapp-regs", NULL,
 	"no%appl",	"-mno-app-regs", NULL,
 	"float",	"-mfpu", NULL,
 	"no%float",	"-mno-fpu", NULL,
-#endif	/* __sparc */
+#endif	/* sparc */
 	NULL,		NULL
 };
 
@@ -883,7 +887,7 @@ do_gcc(cw_ictx_t *ctx)
 			}
 			if (strcmp(arg, "-m64") == 0) {
 				newae(ctx->i_ae, "-m64");
-#if defined(__x86)
+#if defined(CW_TARGET_i386)
 				newae(ctx->i_ae, "-mtune=opteron");
 #endif
 				mflag |= M64;
@@ -1038,12 +1042,12 @@ do_gcc(cw_ictx_t *ctx)
 				 */
 				break;
 			}
-#if defined(__x86)
+#if defined(CW_TARGET_i386)
 			if (strcmp(arg, "-Wu,-save_args") == 0) {
 				newae(ctx->i_ae, "-msave-args");
 				break;
 			}
-#endif	/* __x86 */
+#endif	/* i386 */
 			error(arg);
 			break;
 		case 'X':
@@ -1123,7 +1127,7 @@ do_gcc(cw_ictx_t *ctx)
 					break;
 				error(arg);
 				break;
-#if defined(__x86)
+#if defined(CW_TARGET_i386)
 			case 'm':
 				if (strcmp(arg, "-xmodel=kernel") == 0) {
 					newae(ctx->i_ae, "-ffreestanding");
@@ -1134,7 +1138,7 @@ do_gcc(cw_ictx_t *ctx)
 				}
 				error(arg);
 				break;
-#endif	/* __x86 */
+#endif	/* i386 */
 			case 'O':
 				if (strncmp(arg, "-xO", 3) == 0) {
 					size_t len = strlen(arg);
@@ -1261,7 +1265,7 @@ do_gcc(cw_ictx_t *ctx)
 	case 0:
 		/* FALLTHROUGH */
 	case M32:
-#if defined(__sparc)
+#if defined(CW_TARGET_sparc)
 		/*
 		 * Only -m32 is defined and so put in the missing xarch
 		 * translation.
@@ -1271,7 +1275,7 @@ do_gcc(cw_ictx_t *ctx)
 #endif
 		break;
 	case M64:
-#if defined(__sparc)
+#if defined(CW_TARGET_sparc)
 		/*
 		 * Only -m64 is defined and so put in the missing xarch
 		 * translation.
@@ -1280,7 +1284,7 @@ do_gcc(cw_ictx_t *ctx)
 #endif
 		break;
 	case SS12:
-#if defined(__sparc)
+#if defined(CW_TARGET_sparc)
 		/* no -m32/-m64 flag used - this is an error for sparc builds */
 		(void) fprintf(stderr, "No -m32/-m64 flag defined\n");
 		exit(2);
@@ -1292,7 +1296,7 @@ do_gcc(cw_ictx_t *ctx)
 	case (SS11|M64):
 		break;
 	case (SS12|M32):
-#if defined(__sparc)
+#if defined(CW_TARGET_sparc)
 		/*
 		 * Need to add in further 32 bit options because with SS12
 		 * the xarch=sparcvis option can be applied to 32 or 64

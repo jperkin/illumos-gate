@@ -48,7 +48,10 @@ HDRS= \
 	history.h \
 	nval.h \
 	shell.h
-	
+
+# XXXARM: ... damn spot
+$(ARM_BLD)HDRS=
+
 HDRDIR32= $(MACH)/include/ast
 HDRDIR64= $(MACH64)/include/ast
 include ../Makefile.asthdr

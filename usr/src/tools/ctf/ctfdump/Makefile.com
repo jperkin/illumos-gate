@@ -23,7 +23,7 @@ NATIVE_LIBS += libctf.so libc.so
 
 LDFLAGS = \
 	-L$(ROOTONBLDLIBMACH) \
-	'-R$$ORIGIN/../../lib/$(MACH)' \
+	'-R$$ORIGIN/../../lib/$(NATIVE_MACH)' \
 	$(BDIRECT)
 
 CPPFLAGS += -include ../../common/ctf_headers.h

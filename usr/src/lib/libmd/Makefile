@@ -51,8 +51,7 @@ install_h:	$(ROOTHDRS)
 
 check:		$(CHECKHDRS)
 
-$(CAPDIR) \
-$(SUBDIRS):	FRC
+$(CAPDIR) $(SUBDIRS):	FRC
 		@cd $@; pwd; $(MAKE) $(TARGET)
 
 FRC:

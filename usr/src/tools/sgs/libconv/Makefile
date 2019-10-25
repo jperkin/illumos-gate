@@ -34,6 +34,11 @@ CPPFLAGS =	 $(NATIVE_CPPFLAGS) -I$(SRC)/lib/libc/inc -I$(ELFCAP) \
 CFLAGS =	$(NATIVE_CFLAGS)
 CW_LINKER =
 
+#
+# Tell bld_vernote that we need to use the native build.
+#
+BLDVERNOTE_TARGET_ARGS=	-n
+
 .PARALLEL:	$(PICS)
 .KEEP_STATE:
 

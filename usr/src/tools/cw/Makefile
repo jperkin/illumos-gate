@@ -1,75 +1,39 @@
 #
-# CDDL HEADER START
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
 #
-# The contents of this file are subject to the terms of the
-# Common Development and Distribution License (the "License").
-# You may not use this file except in compliance with the License.
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
 #
-# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
-# or http://www.opensolaris.org/os/licensing.
-# See the License for the specific language governing permissions
-# and limitations under the License.
-#
-# When distributing Covered Code, include this CDDL HEADER in each
-# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
-# If applicable, add the following below this CDDL HEADER, with the
-# fields enclosed by brackets "[]" replaced with your own identifying
-# information: Portions Copyright [yyyy] [name of copyright owner]
-#
-# CDDL HEADER END
-#
-#
-# Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
-# Use is subject to license terms.
-#
-# Copyright 2018 Joyent, Inc.
 
-PROG	= cw
+SUBDIRS= arm i386 sparc
 
-MAN1ONBLDFILES=	cw.1onbld
+install := TARGET = install
+all	:= TARGET = all
+lint	:= TARGET = lint
+clobber := TARGET = clobber
+clean	:= TARGET = clean
+check	:= TARGET = check
+
+install all clean clobber check lint: $(SUBDIRS)
+
+$(SUBDIRS): FRC
+	@cd $@; pwd; $(MAKE) TARG_MACH=$@ $(TARGET)
+
+FRC:
+
+MAN1FILES=	cw.1
 
 include ../Makefile.tools
 
-# Bootstrap problem -- we have to build cw before we can use it
-i386_CC=		$(SPRO_VROOT)/bin/cc
-sparc_CC=		$(SPRO_VROOT)/bin/cc
-$(__GNUC)i386_CC=	$(GNUC_ROOT)/bin/gcc
-$(__GNUC)sparc_CC=	$(GNUC_ROOT)/bin/gcc
+$(ROOTONBLDMAN1FILES) := FILEMODE= 644
 
-CFLAGS += $(CCVERBOSE)
+install: $(ROOTONBLDMAN1FILES)  $(ROOTONBLDBINMACH)/cw
 
-# Override CFLAGS.  This is needed only for bootstrap of cw.
-$(__GNUC)CFLAGS=	-O -D__sun -Wall -Wno-unknown-pragmas -Werror \
-			-std=gnu99 -nodefaultlibs
-$(__SUNC)CFLAGS=	-xspace -Xa -xildoff -errtags=yes -errwarn=%all \
-			-xc99=%all -W0,-xglobalstatic -v
-
-$(__GNUC)LDLIBS +=	-Wl,-zassert-deflib=libc.so -lc
-$(__GNUC)LDFLAGS=	$(MAPFILE.NES:%=-Wl,-M%)
-$(__GNUC)ZASSERTDEFLIB = -Wl,-zassert-deflib
-$(__GNUC)ZFATALWARNINGS = -Wl,-zfatal-warnings
-$(__GNUC)ZGUIDANCE = -Wl,-zguidance
-LDFLAGS += -Wl,$(ZDIRECT)
-
-$(ROOTONBLDMAN1ONBLDFILES) := FILEMODE=      644
-CSTD=	$(CSTD_GNU99)
-
-# Assume we don't have the install.bin available yet
-INS.file=	$(RM) $@; $(CP) $< $(@D); $(CHMOD) $(FILEMODE) $@
-
-.KEEP_STATE:
-
-all: $(PROG) $(MAN1ONBLDFILES)
-
-install: all .WAIT $(ROOTONBLDMACHPROG) $(ROOTONBLDMAN1ONBLDFILES)
-
-lint: lint_PROG
-
-clean:
-
-#
-# Not run by default: bootstrap...
-check:
-	$(ROOTONBLDBINMACH)/mandoc -Tlint -Wwarning $(MAN1ONBLDFILES)
+$(ROOTONBLDBINMACH)/cw: FRC
+	$(RM) $@; $(SYMLINK) cw.$(NATIVE_MACH) $@
 
 include ../Makefile.targ

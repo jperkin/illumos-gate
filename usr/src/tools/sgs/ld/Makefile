@@ -30,10 +30,11 @@ LDLIBS =	-L../libconv -L$(ROOTONBLDLIBMACH) -lld -lelf -lconv
 NATIVE_LIBS +=	libc.so
 CPPFLAGS =	$(NATIVE_CPPFLAGS)
 CFLAGS =	$(NATIVE_CFLAGS)
+SGSMSGDIR =     $(SGSHOME)/messages/$(NATIVE_MACH)
 MAPFILES =	$(SRCDIR)/common/mapfile-intf
 CW_LINKER =
-VAR_LD_LLDFLAGS=	'-R$$ORIGIN/../../lib/$(MACH)'
-VAR_LD_LLDFLAGS64 =	'-R$$ORIGIN/../../../lib/$(MACH64)'
+VAR_LD_LLDFLAGS=	'-R$$ORIGIN/../../lib/$(NATIVEMACH)'
+VAR_LD_LLDFLAGS64 =	'-R$$ORIGIN/../../../lib/$(NATIVEMACH64)'
 
 install: $(ROOTONBLDMACHPROG)
 

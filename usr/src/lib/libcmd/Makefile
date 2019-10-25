@@ -47,6 +47,9 @@ HDRS=	\
 	cmd.h \
 	cmdext.h
 
+# XXXARM: Not playing this game
+$(ARM_BLD)HDRS=
+
 HDRDIR32= $(MACH)/include/ast
 HDRDIR64= $(MACH64)/include/ast
 include ../Makefile.asthdr

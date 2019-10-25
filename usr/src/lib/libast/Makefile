@@ -147,6 +147,9 @@ HDRDIR32= $(MACH)/include/ast
 HDRDIR64= $(MACH64)/include/ast
 include ../Makefile.asthdr
 
+# XXXARM: I'm not wading into this swamp right now.
+$(ARM_BLD)HDRS=
+
 install_h: $(ROOTHDRS)
 
 # We don't check these header files because they're owned by AT&T/AST

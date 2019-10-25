@@ -47,6 +47,9 @@ LIBRARY= 	libdll.a
 HDRS= \
 	dlldefs.h
 
+# XXXARM: ... pabst blue ribbon
+$(ARM_BLD)HDRS=
+
 HDRDIR32= $(MACH)/src/lib/libdll
 HDRDIR64= $(MACH64)/src/lib/libdll
 include ../Makefile.asthdr
