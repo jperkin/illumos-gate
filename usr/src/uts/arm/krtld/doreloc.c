@@ -107,8 +107,13 @@ const Rel_entry reloc_table[R_ARM_NUM] = {
 	{ 0, FLG_RE_NOTSUP, 0, 0, 0 }, /* R_ARM_TARGET2 */
 	/* XXXARM: This is wrong, but also working.  Ouch. */
 	{ 0x7fffffff, FLG_RE_NOTREL,  4, 0, 31 }, /* R_ARM_PREL31 */
-	{ 0, FLG_RE_NOTSUP, 0, 0, 0 }, /* R_ARM_MOVW_ABS_NC */
-	{ 0, FLG_RE_NOTSUP, 0, 0, 0 }, /* R_ARM_MOVT_ABS */
+	/*
+	 * XXXARM: This relocation can be used to transition to thumb, but since
+	 * we don't support thumb at all and the compiler shouldn't be
+	 * generating it, this should be OK.
+	 */
+	{ 0, FLG_RE_NOTREL | FLG_RE_SIGN | FLG_RE_LOCLBND, 4, 0, 16 }, /* R_ARM_MOVW_ABS_NC */
+	{ 0, FLG_RE_NOTREL | FLG_RE_SIGN | FLG_RE_LOCLBND, 4, 16, 16 }, /* R_ARM_MOVT_ABS */
 	{ 0, FLG_RE_NOTSUP, 0, 0, 0 }, /* R_ARM_MOVW_PREL_NC */
 	{ 0, FLG_RE_NOTSUP, 0, 0, 0 }, /* R_ARM_MOVT_PREL */
 	{ 0, FLG_RE_NOTSUP, 0, 0, 0 }, /* R_ARM_THM_MOVW_ABS_NC */
@@ -210,7 +215,7 @@ const Rel_entry reloc_table[R_ARM_NUM] = {
 
 /*
  * Write a single relocated value to its reference location We assume we wish
- * to add the relocation amount, value, to the value of the adress already
+ * to add the relocation amount, value, to the value of the address already
  * present at the offset.
  *
  * Note that "T", relating to thumb interworking, is not actually supported.
@@ -225,9 +230,11 @@ const Rel_entry reloc_table[R_ARM_NUM] = {
  * R_ARM_CALL		28	imm24	((S + A) | T) - P   XXX: Shifting
  * R_ARM_JUMP24		29	imm24	((S + A) | T) - P   XXX: Shifting
  * R_ARM_PREL31		42	imm31	((S + A) | T) - P   XXX: Shifting
+ * R_ARM_MOVW_ABS_NC	43	XXX	(S + A) | T ... Has special handling.
+ * R_ARM_MOVW_ABS_NC	44	XXX	S + A ... Has special handling.
  *
  * This is from Table 4-8, ELF for the ARM Architecture, ARM IHI 0044E,
- * current through ABI release 2.09, issued 30th November 2012.
+ * current through ABI release 2.10, issued 24th November 2015.
  *
  * Relocation calculations:
  *
@@ -286,6 +293,56 @@ do_reloc_rtld(uchar_t rtype, uchar_t *off, Xword *value,
 	default:
 		REL_ERR_UNSUPSZ(lml, file, sym, rtype, rep->re_fsize);
 		return (0);
+	}
+
+	/*
+	 * Some relocations need special handling. The MOVW and MOVT basically
+	 * need to do special extractions and special calculations from the
+	 * instruction itself. Basically, it's a mess. So we handle it here,
+	 * after we've extracted the base.
+	 *
+	 * XXXARM: Probably worth figuring out better ways to integrate this
+	 * into the rest of the machinery.
+	 */
+	switch (rtype) {
+	case R_ARM_MOVW_ABS_NC:
+	case R_ARM_MOVT_ABS: {
+		Sword sign;
+		uchar_t *b_bytes = (uchar_t *)&base;
+
+		/*
+		 * A 16-bit quantity is embedded in the base as an addition to
+		 * the addend. It needs to be converted to a signed value.
+		 * However, that 16-bit quantity is encoded as 0x000f0fff.
+		 */
+		uvalue = (base & 0x000f0000) >> 4;
+		uvalue |= (base & 0xfff);
+		base &= ~0x000f0fff;
+
+		if (uvalue & 0x8000) {
+			sign = (uvalue & ~0x8000) - 0x8000;
+		} else {
+			sign = uvalue;
+		}
+		uvalue = *value + sign;
+
+		/*
+		 * In the case of the MOVT instruction, we only keep the upper
+		 * 16-bits. We shift it down so we have a uniform way of
+		 * installing it.
+		 */
+		if (rtype == R_ARM_MOVT_ABS) {
+			uvalue = uvalue >> 16;
+		}
+
+		base |= (uvalue & 0xfff);
+		base |= (uvalue & 0xf000) << 4;
+
+		UL_ASSIGN_WORD(off, b_bytes);
+		return (1);
+	}
+	default:
+		break;
 	}
 
 	uvalue = *value;
