@@ -39,6 +39,8 @@ sparc_ARCHITECTURES = sun4v sun4u sparc
 
 i386_ARCHITECTURES = i86pc i86xpv intel
 
+arm_ARCHITECTURES = armv7 arm
+
 #
 # For i386 all architectures can be compiled in parallel.
 #
@@ -55,6 +57,12 @@ i386_PARALLEL = $(i386_ARCHITECTURES)
 #
 sparc_PREREQ = sun4
 sparc_PARALLEL = $(sparc_ARCHITECTURES)
+
+#
+# For ARM all architectures can be compiled in parallel.
+#
+arm_PREREQ = arm
+arm_PARALLEL = $(arm_ARCHITECTURES)
 
 #
 # Platforms defined in $(MACH)_PARALLEL are built in parallel. DUMMY is placed
@@ -175,6 +183,7 @@ DYNHDRDIRS =	common/gssapi \
 
 sparc_HDRDIRS= sun/sys
 i386_HDRDIRS= i86pc/vm i86xpv/vm
+arm_HDRDIRS= armv7/sys
 
 HDRDIRS= $(COMMON_HDRDIRS) $($(MACH)_HDRDIRS)
 install_h check: $(HDRDIRS) $($(MACH)_ARCHITECTURES)
@@ -211,8 +220,8 @@ clean.lint modlist: $($(MACH)_ARCHITECTURES)
 # the user will be interested in), it's historically been set to
 # mirror the $(XRDIRS) list, and that works kinda sorta okay.
 #
-XRDIRS = $(sparc_ARCHITECTURES) $(i386_ARCHITECTURES) sun4 sfmmu	\
-	sun common
+XRDIRS = $(sparc_ARCHITECTURES) $(i386_ARCHITECTURES) $(arm_ARCHITECTURES) \
+	sun4 sfmmu sun common
 
 XRINCDIRS = $(XRDIRS)
 

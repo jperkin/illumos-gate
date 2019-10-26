@@ -1,0 +1,104 @@
+#
+# CDDL HEADER START
+#
+# The contents of this file are subject to the terms of the
+# Common Development and Distribution License (the "License").
+# You may not use this file except in compliance with the License.
+#
+# You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
+# or http://www.opensolaris.org/os/licensing.
+# See the License for the specific language governing permissions
+# and limitations under the License.
+#
+# When distributing Covered Code, include this CDDL HEADER in each
+# file and include the License file at usr/src/OPENSOLARIS.LICENSE.
+# If applicable, add the following below this CDDL HEADER, with the
+# fields enclosed by brackets "[]" replaced with your own identifying
+# information: Portions Copyright [yyyy] [name of copyright owner]
+#
+# CDDL HEADER END
+#
+
+#
+# Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
+#
+
+UTSBASE = ..
+
+include Makefile.arm
+
+def			:=	TARGET= def
+def.prereq		:=	TARGET= def
+all			:=	TARGET= all
+all.prereq		:=	TARGET= all
+install			:=	TARGET= install
+install.prereq		:=	TARGET= all
+clean			:=	TARGET= clean
+clobber			:=	TARGET= clobber
+modlist			:=	TARGET= modlist
+modlist			:=	NO_STATE= -K $$MODSTATE$$$$
+check			:=	TARGET= check
+install_h		:=	TARGET= install_h
+install_h.prereq	:=	TARGET= install_h
+
+.KEEP_STATE:
+
+.PARALLEL:	$(PARALLEL_KMODS) $(XMODS) config $(LINT_DEPS)
+
+def all install clean clobber modlist: $(KMODS) $(XMODS) #XXX: config
+
+
+#
+# Privilege constants
+#
+# NOTE: The rules for generating priv_const.c file are shared between all
+# processor architectures and and should be kept in sync. If they are changed in
+# this file make sure that the intel and sparc rules are updated as well.
+#
+PRIVS_C = $(SRC)/uts/common/os/priv_const.c
+
+$(PRIVS_C): $(PRIVS_AWK) $(PRIVS_DEF)
+	$(NAWK) -f $(PRIVS_AWK) < $(PRIVS_DEF) cfile=$@
+
+#
+# Prerequisites
+#
+# The uts/Makefile defines build parallelism for arm platforms such that
+# armv6, and arm are all built in parallel. This requires building certain
+# parts before the parallel build can start. The uts/Makefile appends the
+# '.prereq' string to the original target and executes this Makefile to build
+# any prerequisites needed before the full parallel build can start. After
+# that make continues with normal targets.
+#
+# Any build prerequisites for arm builds should be described here.
+#
+# genassym is used to build arm/dtrace and genunix, so it should be built
+# first.
+#
+# priv_const.c is required to build genunix.
+#
+# genunix is used by everyone to ctf-merge with. Genunix is CTF-merged with
+#   arm/ip so as a side effect this dependency builds arm/ip as part of the
+#   prerequisites.
+#
+all.prereq install.prereq def.prereq: genunix FRC
+	@cd ../armv6/genassym; pwd; $(MAKE) $(@:%.prereq=%)
+
+#
+# Nothing to do for any other prerequisite targets.
+#
+%.prereq:
+
+genunix: $(PRIVS_C)
+
+$(KMODS) $(SUBDIRS) config:	FRC
+	@cd $@; pwd; $(MAKE) $(NO_STATE) $(TARGET)
+
+$(XMODS):	FRC
+	cd $@; pwd; $(MAKE) $(NO_STATE) $(TARGET);
+
+install_h check:	FRC
+	@cd sys; pwd; $(MAKE) $(TARGET)
+	#@cd asm; pwd; $(MAKE) $(TARGET) # XXX: We should have this, and will right soon...
+
+include ../Makefile.targ

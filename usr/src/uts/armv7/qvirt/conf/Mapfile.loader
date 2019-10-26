@@ -1,0 +1,37 @@
+#
+# This file and its contents are supplied under the terms of the
+# Common Development and Distribution License ("CDDL"), version 1.0.
+# You may only use this file in accordance with the terms of version
+# 1.0 of the CDDL.
+#
+# A full copy of the text of the CDDL should have accompanied this
+# source.  A copy of the CDDL is also available via the Internet at
+# http://www.illumos.org/license/CDDL.
+#
+
+#
+# Copyright 2019 Team Twist My ARM
+#
+
+$mapfile_version 2
+
+#
+# Please see uts/armv7/qvirt/aboot/qvirt_boot.s for information on where
+# the addresses in this mapfile come from.
+#
+LOAD_SEGMENT text {
+	FLAGS = READ EXECUTE;
+	PADDR = 0x41000000;
+	VADDR = 0x41000000;
+	MAX_SIZE = 0x2000;
+	OS_ORDER = .text;
+	ASSIGN_SECTION {
+		TYPE = PROGBITS;
+		FLAGS = ALLOC !WRITE;
+	};
+};
+
+LOAD_SEGMENT data {
+	PADDR = 0x41002000;
+	VADDR = 0x41002000;
+};
