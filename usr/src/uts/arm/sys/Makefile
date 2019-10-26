@@ -10,13 +10,14 @@
 #
 
 #
-# Copyright 2019 Robert Mustacchi
+# Copyright 2019 Team Twist My ARM
 #
 
 include ../../../Makefile.master
 
 HDRS = 				\
-	asm_linkage.h
+	asm_linkage.h		\
+	machtypes.h
 
 ROOTDIR=	$(ROOT)/usr/include/sys
 ROOTHDRS=	$(HDRS:%=$(ROOTDIR)/%)
