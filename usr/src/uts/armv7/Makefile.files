@@ -18,7 +18,9 @@
 #
 ABOOT_FILES +=		\
 	aboot.o		\
-	aboot_core.o
+	aboot_core.o	\
+	armv7_subr.o	\
+	devicetree.o
 
 #
 # Definitions and Include Paths

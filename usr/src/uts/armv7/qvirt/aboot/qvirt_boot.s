@@ -35,19 +35,14 @@
  * +------------+ 0x40900000
  * | aboot data |
  * +------------+ 0x40800000 (Limit, probably less)
- * |     FDT    |
+ * | RAM Start  |
  * +------------+ 0x40000000
  *
  * Our allocated data that we pass to the kernel, along with the original FDT is
  * at the start of memory. aboot then works down from there with its stack,
- * hopefully the two not meeting, while the aboot ELF image grows up.
+ * hopefully the two not meeting, while the aboot ELF image grows up. However,
+ * QEMU sometimes moves the FDT. Thankfully we should get it in r2.
  */
-
-/*
- * This is the address that the flattened device tree starts at for the qemu
- * virtual board.
- */
-#define	QVIRT_FDT	0x40000000
 
 /*
  * We need to get a bootstrap stack pointer. For this we rely on the memory
@@ -61,7 +56,6 @@
 	mov	r0, #0
 	mov	r1, #0
 	mvn	r1, r1
-	mov	r2, #QVIRT_FDT
 	mov	sp, #QVIRT_SP
 	bl	aboot_main
 	SET_SIZE(_start)
