@@ -241,6 +241,168 @@ extern	uint64_t ntohll(uint64_t);
 
 #endif	/* !_XPG4_2 || __EXTENSIONS__ */
 
+/*
+ * Define aliases ala endian(3C) for byte swap macros to make life a little
+ * clearer for folks. These could some day be in uts/common/sys/endian.h, but a
+ * number of applications expect things there, so we need to be a bit more
+ * careful. We don't implement the old names here.
+ */
+#if defined(_KERNEL) || defined(_BOOT)
+
+#if defined(_BIG_ENDIAN)
+
+static inline uint16_t
+htole16(uint16_t x)
+{
+	return (BSWAP_16(x));
+}
+
+static inline uint32_t
+htole32(uint32_t x)
+{
+	return (BSWAP_32(x));
+}
+
+static inline uint64_t
+htole64(uint64_t x)
+{
+	return (BSWAP_64(x));
+}
+
+static inline uint16_t
+htobe16(uint16_t x)
+{
+	return (BMASK_16(x));
+}
+
+static inline uint32_t
+htobe32(uint32_t x)
+{
+	return (BMASK_32(x));
+}
+
+static inline uint64_t
+htobe64(uint64_t x)
+{
+	return (BMASK_64(x));
+}
+
+static inline uint16_t
+le16toh(uint16_t x)
+{
+	return (BSWAP_16(x));
+}
+
+static inline uint32_t
+le32toh(uint32_t x)
+{
+	return (BSWAP_32(x));
+}
+
+static inline uint64_t
+le64toh(uint64_t x)
+{
+	return (BSWAP_64(x));
+}
+
+static inline uint16_t
+be16toh(uint16_t x)
+{
+	return (BMASK_16(x));
+}
+
+static inline uint32_t
+be32toh(uint32_t x)
+{
+	return (BMASK_32(x));
+}
+
+static inline uint64_t
+be64toh(uint64_t x)
+{
+	return (BMASK_64(x));
+}
+
+#elif defined(_LITTLE_ENDIAN)
+
+static inline uint16_t
+htole16(uint16_t x)
+{
+	return (BMASK_16(x));
+}
+
+static inline uint32_t
+htole32(uint32_t x)
+{
+	return (BMASK_32(x));
+}
+
+static inline uint64_t
+htole64(uint64_t x)
+{
+	return (BMASK_64(x));
+}
+
+static inline uint16_t
+htobe16(uint16_t x)
+{
+	return (BSWAP_16(x));
+}
+
+static inline uint32_t
+htobe32(uint32_t x)
+{
+	return (BSWAP_32(x));
+}
+
+static inline uint64_t
+htobe64(uint64_t x)
+{
+	return (BSWAP_64(x));
+}
+
+static inline uint16_t
+le16toh(uint16_t x)
+{
+	return (BMASK_16(x));
+}
+
+static inline uint32_t
+le32toh(uint32_t x)
+{
+	return (BMASK_32(x));
+}
+
+static inline uint64_t
+le64toh(uint64_t x)
+{
+	return (BMASK_64(x));
+}
+
+static inline uint16_t
+be16toh(uint16_t x)
+{
+	return (BSWAP_16(x));
+}
+
+static inline uint32_t
+be32toh(uint32_t x)
+{
+	return (BSWAP_32(x));
+}
+
+static inline uint64_t
+be64toh(uint64_t x)
+{
+	return (BSWAP_64(x));
+}
+
+#else
+#error	"Unknown Endianness"
+#endif
+
+#endif	/* _KERNEL || _BOOT */
+
 #ifdef	__cplusplus
 }
 #endif
