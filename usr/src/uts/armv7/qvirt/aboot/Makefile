@@ -45,13 +45,6 @@ CLOBBERFILES	= $(CLEANFILES) $(LOADER_BIN)
 CFLAGS 		+= $(CCVERBOSE) \
 		-DELF_TARGET_ARM
 
-#
-# XXX We're apparently getting an unsupported armv7 relocation. Use tihs
-# to get us over the hump with gcc7 as armv6 doesn't seem to cause it
-# for reasons unknown.
-#
-CFLAGS		+= -_gcc=-march=armv6
-
 MAPFILE		= $(UTSBASE)/armv7/qvirt/conf/Mapfile.loader
 
 #
