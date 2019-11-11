@@ -15,7 +15,8 @@
 
 include ../../../Makefile.master
 
-HDRS =
+HDRS = \
+	machparam.h
 
 ROOTDIR=	$(ROOT)/usr/include/sys
 ROOTHDRS=	$(HDRS:%=$(ROOTDIR)/%)

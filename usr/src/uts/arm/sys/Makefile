@@ -17,6 +17,7 @@ include ../../../Makefile.master
 
 HDRS = 				\
 	asm_linkage.h		\
+	machlock.h		\
 	machtypes.h
 
 ROOTDIR=	$(ROOT)/usr/include/sys
