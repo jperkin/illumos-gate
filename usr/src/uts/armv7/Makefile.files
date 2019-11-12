@@ -13,6 +13,7 @@
 # Copyright 2019 Team Twist My ARM
 #
 
+
 #
 # Files used for 'aboot'
 #
@@ -21,6 +22,13 @@ ABOOT_FILES +=		\
 	aboot_core.o	\
 	armv7_subr.o	\
 	devicetree.o
+
+MATH_OBJS += 			\
+	divsi3.o 		\
+	ldivmod.o 		\
+	ldivmod_helper.o 	\
+	divdi3.o 		\
+	qdivrem.o
 
 #
 # Definitions and Include Paths

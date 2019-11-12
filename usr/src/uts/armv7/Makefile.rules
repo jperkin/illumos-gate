@@ -25,6 +25,13 @@ $(OBJS_DIR)/%.o:	$(UTSBASE)/armv7/aboot/%.c
 $(OBJS_DIR)/%.o:	$(UTSBASE)/armv7/aboot/%.s
 	$(COMPILE.s) -o $@ $<
 
+$(OBJS_DIR)/%.o:	$(UTSBASE)/armv7/math/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
+$(OBJS_DIR)/%.o:	$(UTSBASE)/armv7/math/%.s
+	$(COMPILE.s) -o $@ $<
+
 $(OBJS_DIR)/%.o:	$(UTSBASE)/armv7/misc/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
