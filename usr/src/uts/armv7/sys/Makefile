@@ -16,6 +16,7 @@
 include ../../../Makefile.master
 
 HDRS = \
+	armv7_cpu.h	\
 	machparam.h
 
 ROOTDIR=	$(ROOT)/usr/include/sys

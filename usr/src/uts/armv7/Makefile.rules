@@ -35,3 +35,12 @@ $(OBJS_DIR)/%.o:	$(UTSBASE)/armv7/math/%.s
 $(OBJS_DIR)/%.o:	$(UTSBASE)/armv7/misc/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
+
+$(OBJS_DIR)/%.o:	$(UTSBASE)/armv7/ml/%.s
+	$(COMPILE.s) -o $@ $<
+
+$(OBJS_DIR)/%.o:	$(UTSBASE)/armv7/os/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
+

@@ -17,11 +17,15 @@
 #
 # Files used for 'aboot'
 #
-ABOOT_FILES +=		\
+ABOOT_CORE_OBJS +=		\
 	aboot.o		\
-	aboot_core.o	\
+	aboot_ml.o	\
 	armv7_subr.o	\
 	devicetree.o
+
+CACHE_OBJS += \
+	armv7_cache.o	\
+	armv7_dcache.o
 
 MATH_OBJS += 			\
 	divsi3.o 		\
@@ -29,6 +33,14 @@ MATH_OBJS += 			\
 	ldivmod_helper.o 	\
 	divdi3.o 		\
 	qdivrem.o
+
+ABOOT_MATH_OBJS +=	\
+	divsi3.o
+
+ABOOT_OBJS += 			\
+	$(ABOOT_CORE_OBJS)	\
+	$(ABOOT_MATH_OBJS)	\
+	$(CACHE_OBJS)
 
 #
 # Definitions and Include Paths

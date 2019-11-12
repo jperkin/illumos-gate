@@ -16,6 +16,6 @@
 #
 # Files used for 'aboot'
 #
-ABOOT_FILES +=		\
+ABOOT_OBJS +=		\
 	qvirt_boot.o	\
 	qvirt_deps.o

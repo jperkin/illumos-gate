@@ -41,6 +41,7 @@ typedef struct fdt {
 	void *fdt_memrsvd;
 	void *fdt_structs;
 	void *fdt_strings;
+	uint32_t fdt_size;
 	uint32_t fdt_structlen;
 	uint32_t fdt_stringlen;
 } fdt_t;
@@ -61,15 +62,18 @@ typedef struct fdt_prop fdt_prop_t;
 typedef struct fdt_memrsvd fdt_memrsvd_t;
 
 extern fdt_error_t fdt_init(uintptr_t, fdt_t *);
+extern uint32_t fdt_size(fdt_t *);
 
+extern fdt_node_t *fdt_find_node(fdt_t *, const char *);
+extern fdt_node_t *fdt_root_node(fdt_t *);
 extern fdt_node_t *fdt_next_node(fdt_t *, fdt_node_t *);
 extern fdt_node_t *fdt_child_node(fdt_t *, fdt_node_t *);
 extern const char *fdt_node_name(fdt_node_t *);
 
+extern fdt_prop_t *fdt_find_prop(fdt_t *, fdt_node_t *, const char *);
 extern fdt_prop_t *fdt_next_prop(fdt_t *, fdt_node_t *, fdt_prop_t *);
 extern const char *fdt_prop_name(fdt_t *, fdt_prop_t *);
-extern boolean_t fdt_prop_len(fdt_t *, fdt_prop_t *, uint32_t *);
-extern void *fdt_prop_value(fdt_t *, fdt_prop_t *);
+extern boolean_t fdt_prop(fdt_t *, fdt_prop_t *, uint32_t *, void **);
 
 extern fdt_memrsvd_t *fdt_next_memrsvd(fdt_t *, fdt_memrsvd_t *);
 extern void fdt_memrsvd(fdt_memrsvd_t *, uint64_t *, uint64_t *);

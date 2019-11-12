@@ -33,6 +33,9 @@
  * moment, just declare strlen extern.
  */
 extern size_t strlen(const char *);
+extern char *strchr(const char *, int);
+extern int strcmp(const char *, const char *);
+extern int strncmp(const char *, const char *, size_t);
 
 #define	FDT_MAGIC	0xd00dfeed
 
@@ -119,6 +122,7 @@ fdt_init(uintptr_t addr, fdt_t *fdtp)
 	fdtp->fdt_strings = (void *)(addr + strings);
 	fdtp->fdt_stringlen = stringlen;
 	fdtp->fdt_memrsvd = (void *)(addr + memrsvd);
+	fdtp->fdt_size = size;
 
 	/*
 	 * Check to make sure we start with a BEGIN NODE token and that the
@@ -280,6 +284,20 @@ fdt_child_node(fdt_t *fdt, fdt_node_t *node)
 }
 
 fdt_node_t *
+fdt_root_node(fdt_t *fdt)
+{
+	const uint32_t *tokp = fdt->fdt_structs;
+
+	tokp = fdt_skip_nops(tokp);
+
+	if (be32toh(*tokp) != FDT_TOK_BEGIN_NODE) {
+		return (NULL);
+	}
+
+	return ((fdt_node_t *)tokp);
+}
+
+fdt_node_t *
 fdt_next_node(fdt_t *fdtp, fdt_node_t *node)
 {
 	const uint32_t *tokp;
@@ -289,13 +307,7 @@ fdt_next_node(fdt_t *fdtp, fdt_node_t *node)
 	 * the first node.
 	 */
 	if (node == NULL) {
-		tokp = fdt_skip_nops(fdtp->fdt_structs);
-
-		if (be32toh(*tokp) != FDT_TOK_BEGIN_NODE) {
-			return (NULL);
-		}
-
-		return ((fdt_node_t *)tokp);
+		return (fdt_root_node(fdtp));
 	}
 
 	/*
@@ -387,6 +399,31 @@ fdt_prop_name(fdt_t *fdt, fdt_prop_t *prop)
 }
 
 boolean_t
+fdt_prop(fdt_t *fdt, fdt_prop_t *prop, uint32_t *lenp, void **datap)
+{
+	const uint32_t *tokp;
+	uint32_t len;
+
+	tokp = (const uint32_t *)prop;
+	if (be32toh(*tokp) != FDT_TOK_PROP) {
+		return (B_FALSE);
+	}
+	tokp++;
+
+	len = be32toh(*tokp);
+	if (lenp != NULL) {
+		*lenp = len;
+	}
+	tokp += 2;
+
+	if (datap != NULL) {
+		*datap = (void *)tokp;
+	}
+
+	return (B_TRUE);
+}
+
+boolean_t
 fdt_prop_len(fdt_t *fdt, fdt_prop_t *prop, uint32_t *lenp)
 {
 	const uint32_t *tokp;
@@ -428,4 +465,84 @@ fdt_memrsvd(fdt_memrsvd_t *mem, uint64_t *addr, uint64_t *len)
 	*addr = be64toh(*tokp);
 	tokp++;
 	*len = be64toh(*tokp);
+}
+
+/*
+ * Find a node in the tree based on its path. We assume that there are no unit
+ * addresses in this name and if we find any, we skip them.
+ */
+fdt_node_t *
+fdt_find_node(fdt_t *fdt, const char *name)
+{
+	fdt_node_t *node;
+
+	if ((node = fdt_root_node(fdt)) == NULL) {
+		return (NULL);
+	}
+
+	if (*name != '/') {
+		return (NULL);
+	}
+	name++;
+
+	while (*name != '\0') {
+		const char *end;
+		size_t namelen;
+		fdt_node_t *n;
+
+		end = strchr(name, '/');
+		if (end == NULL) {
+			namelen = strlen(name);
+		} else {
+			namelen = (uintptr_t)end - (uintptr_t)name;
+		}
+
+		for (n = fdt_child_node(fdt, node); n != NULL;
+		    n = fdt_next_node(fdt, n)) {
+			const char *nname = fdt_node_name(n);
+
+			if (strncmp(nname, name, namelen) == 0 &&
+			    (nname[namelen] == '\0' || nname[namelen] == '@')) {
+				break;
+			}
+		}
+
+		if (n == NULL) {
+			return (NULL);
+		}
+
+		node = n;
+		name += namelen;
+		if (*name == '/')
+			name++;
+	}
+
+	return (node);
+}
+
+fdt_prop_t *
+fdt_find_prop(fdt_t *fdt, fdt_node_t *node, const char *name)
+{
+	fdt_prop_t *p;
+
+	for (p = fdt_next_prop(fdt, node, NULL); p != NULL;
+	    p = fdt_next_prop(fdt, node, p)) {
+		const char *pname;
+
+		pname = fdt_prop_name(fdt, p);
+		if (pname == NULL)
+			continue;
+
+		if (strcmp(name, pname) == 0) {
+			return (p);
+		}
+	}
+
+	return (NULL);
+}
+
+uint32_t
+fdt_size(fdt_t *fdt)
+{
+	return (fdt->fdt_size);
 }
