@@ -71,7 +71,7 @@ typedef struct fdt_reserve_entry {
 fdt_error_t
 fdt_init(uintptr_t addr, fdt_t *fdtp)
 {
-	uint32_t size, structs, strings;
+	uint32_t size, structs, strings, memrsvd;
 	uint32_t structlen, stringlen;
 	uint32_t *sp;
 
@@ -93,6 +93,7 @@ fdt_init(uintptr_t addr, fdt_t *fdtp)
 
 	structs = be32toh(head->fh_off_dt_struct);
 	strings = be32toh(head->fh_off_dt_strings);
+	memrsvd = be32toh(head->fh_off_mem_rsvmap);
 	structlen = be32toh(head->fh_size_dt_struct);
 	stringlen = be32toh(head->fh_size_dt_strings);
 
@@ -100,6 +101,10 @@ fdt_init(uintptr_t addr, fdt_t *fdtp)
 	    structs + structlen > size ||
 	    structs + structlen < structs) {
 		return (FDT_E_BADSTRUCT);
+	}
+
+	if (memrsvd > size) {
+		return (FDT_E_BADMEMRSVD);
 	}
 
 	if (strings > size || stringlen > size ||
@@ -113,6 +118,7 @@ fdt_init(uintptr_t addr, fdt_t *fdtp)
 	fdtp->fdt_structlen = structlen;
 	fdtp->fdt_strings = (void *)(addr + strings);
 	fdtp->fdt_stringlen = stringlen;
+	fdtp->fdt_memrsvd = (void *)(addr + memrsvd);
 
 	/*
 	 * Check to make sure we start with a BEGIN NODE token and that the
@@ -393,4 +399,33 @@ fdt_prop_len(fdt_t *fdt, fdt_prop_t *prop, uint32_t *lenp)
 
 	*lenp = be32toh(*tokp);
 	return (B_TRUE);
+}
+
+fdt_memrsvd_t *
+fdt_next_memrsvd(fdt_t *fdt, fdt_memrsvd_t *mem)
+{
+	const uint64_t *tokp;
+
+	if (mem == NULL) {
+		tokp = fdt->fdt_memrsvd;
+	} else {
+		tokp = (const uint64_t *)mem;
+		tokp += 2;
+	}
+
+	if (be64toh(*tokp) == 0 && be64toh(*(tokp + 1)) == 0) {
+		return (NULL);
+	} else {
+		return ((fdt_memrsvd_t *)mem);
+	}
+}
+
+void
+fdt_memrsvd(fdt_memrsvd_t *mem, uint64_t *addr, uint64_t *len)
+{
+	const uint64_t *tokp = (const uint64_t *)mem;
+
+	*addr = be64toh(*tokp);
+	tokp++;
+	*len = be64toh(*tokp);
 }

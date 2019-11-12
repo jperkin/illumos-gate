@@ -38,10 +38,10 @@ extern "C" {
  */
 typedef struct fdt {
 	uintptr_t fdt_header;
+	void *fdt_memrsvd;
 	void *fdt_structs;
 	void *fdt_strings;
 	uint32_t fdt_structlen;
-	uint32_t fdt_memlen;
 	uint32_t fdt_stringlen;
 } fdt_t;
 
@@ -52,11 +52,13 @@ typedef enum {
 	FDT_E_BADSIZE,
 	FDT_E_BADSTRUCT,
 	FDT_E_BADSTRING,
+	FDT_E_BADMEMRSVD,
 	FDT_E_INVALID
 } fdt_error_t;
 
 typedef struct fdt_node fdt_node_t;
 typedef struct fdt_prop fdt_prop_t;
+typedef struct fdt_memrsvd fdt_memrsvd_t;
 
 extern fdt_error_t fdt_init(uintptr_t, fdt_t *);
 
@@ -68,6 +70,9 @@ extern fdt_prop_t *fdt_next_prop(fdt_t *, fdt_node_t *, fdt_prop_t *);
 extern const char *fdt_prop_name(fdt_t *, fdt_prop_t *);
 extern boolean_t fdt_prop_len(fdt_t *, fdt_prop_t *, uint32_t *);
 extern void *fdt_prop_value(fdt_t *, fdt_prop_t *);
+
+extern fdt_memrsvd_t *fdt_next_memrsvd(fdt_t *, fdt_memrsvd_t *);
+extern void fdt_memrsvd(fdt_memrsvd_t *, uint64_t *, uint64_t *);
 
 
 #ifdef __cplusplus

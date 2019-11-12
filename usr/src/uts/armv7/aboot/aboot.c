@@ -119,6 +119,7 @@ static void
 aboot_print_fdt(fdt_t *fdt)
 {
 	fdt_node_t *node;
+	fdt_memrsvd_t *mem;
 
 	aboot_puts("looking at fdt\n");
 	node = fdt_next_node(fdt, NULL);
@@ -128,9 +129,16 @@ aboot_print_fdt(fdt_t *fdt)
 		aboot_puts("found no node\n");
 	}
 
-	node = fdt_next_node(fdt, node);
-	if (node != NULL) {
-		aboot_puts("somehow found next node of /!\n");
+	for (mem = fdt_next_memrsvd(fdt, NULL); mem != NULL;
+	    mem = fdt_next_memrsvd(fdt, mem)) {
+		uint64_t addr, len;
+
+		fdt_memrsvd(mem, &addr, &len);
+		aboot_puts("reservation: ");
+		aboot_ultostr(addr);
+		aboot_puts("/");
+		aboot_ultostr(len);
+		aboot_puts(" bytes\n");
 	}
 }
 
