@@ -79,11 +79,16 @@ export CODEMGR_WS="`git rev-parse --show-toplevel`"
 #
 # To disable shadow compilation, unset SHADOW_* or set them to the empty string.
 #
-export GNUC_ROOT=/usr/gcc/7
-export PRIMARY_CC=gcc7,$GNUC_ROOT/bin/gcc,gnu
-export PRIMARY_CCC=gcc7,$GNUC_ROOT/bin/g++,gnu
-export SHADOW_CCS=gcc4,/opt/gcc/4.4.4/bin/gcc,gnu
-export SHADOW_CCCS=gcc4,/opt/gcc/4.4.4/bin/g++,gnu
+# For cross-compiling, CROSS_PROTO must point to a built cross-extra proto.
+# export CROSS_PROTO="cross-extra/proto"
+export i386_GNUC_ROOT="${CROSS_PROTO}/i86pc/usr/gcc/7"
+export arm_GNUC_ROOT="${CROSS_PROTO}/armv8/usr/gcc/7"
+export riscv_GNUC_ROOT="${CROSS_PROTO}/riscv/usr/gcc/7"
+export i386_GNU_ROOT="${CROSS_PROTO}/i86pc/usr/gnu"
+export arm_GNU_ROOT="${CROSS_PROTO}/armv8/usr/gnu"
+export riscv_GNU_ROOT="${CROSS_PROTO}/riscv/usr/gnu"
+export i386_PRIMARY_CC="gcc7,${i386_GNUC_ROOT}/bin/gcc,gnu"
+export i386_PRIMARY_CCC="gcc7,${i386_GNUC_ROOT}/bin/g++,gnu"
 
 # comment to disable smatch
 export ENABLE_SMATCH=1
