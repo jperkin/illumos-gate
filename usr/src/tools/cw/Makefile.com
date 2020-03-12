@@ -43,6 +43,7 @@ $(__SUNC)CFLAGS=	-xspace -Xa -xildoff -errtags=yes -errwarn=%all \
 
 $(__GNUC)LDLIBS +=	-lc
 $(__GNUC)LDFLAGS=	$(MAPFILE.NES:%=-Wl,-M%)
+$(__GNUC)LDCHECKS=
 
 CSTD=	$(CSTD_GNU99)
 

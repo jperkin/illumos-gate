@@ -33,15 +33,15 @@ arm_CC = $(GNUC_ROOT)/bin/gcc
 NATIVECC = $($(NATIVE_MACH)_CC)
 
 # sparc doesn't recognise -msave-args
-i386_SMATCHFLAGS = -msave-args
-sparc_SMATCHFLAGS =
+i386_SMATCHFLAGS = -m64 -msave-args
+sparc_SMATCHFLAGS = -m64
 arm_SMATCHFLAGS =
 
 # When we use builtins, then ld's -zguidance will complain that libm is
 # unused on x86 because the compiler will replace ceil(3M) with its own copy.
 # However, on SPARC, it doesn't. So for now we disable builtins to make it
 # consistent.
-CFLAGS = -O -m64 -std=gnu99 -nodefaultlibs -D__sun $($(NATIVE_MACH)_SMATCHFLAGS)
+CFLAGS = -O -std=gnu99 -nodefaultlibs -D__sun $($(NATIVE_MACH)_SMATCHFLAGS)
 CFLAGS += -fno-builtin
 CFLAGS += -Wall -Wno-unknown-pragmas -Wno-psabi
 
