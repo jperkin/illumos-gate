@@ -30,11 +30,6 @@ SRCS	= ../cw.c
 include ../../Makefile.tools
 
 # Bootstrap problem -- we have to build cw before we can use it
-i386_CC=		$(SPRO_VROOT)/bin/cc
-sparc_CC=		$(SPRO_VROOT)/bin/cc
-$(__GNUC)i386_CC=	$(i386_GCC_ROOT)/bin/gcc
-$(__GNUC)sparc_CC=	$(sparc_GCC_ROOT)/bin/gcc
-arm_CC=			$(arm_GCC_ROOT)/bin/gcc
 NATIVECC = $($(NATIVE_MACH)_CC)
 
 CFLAGS += $(CCVERBOSE)

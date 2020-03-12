@@ -28,6 +28,10 @@ include ../Makefile.tools
 i386_CC = $(GNUC_ROOT)/bin/gcc
 sparc_CC = $(GNUC_ROOT)/bin/gcc
 arm_CC = $(GNUC_ROOT)/bin/gcc
+
+# Build directly using GCC rather than going via CW to avoid bootstrap issues.
+NATIVECC = $($(NATIVE_MACH)_CC)
+
 # sparc doesn't recognise -msave-args
 i386_SMATCHFLAGS = -msave-args
 sparc_SMATCHFLAGS =
