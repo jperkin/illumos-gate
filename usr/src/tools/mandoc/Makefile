@@ -28,7 +28,9 @@ OBJS +=		fts.o \
 CPPFLAGS +=	-_gcc=-nostdinc
 CPPFLAGS +=	-I. -include fts.h
 CPPFLAGS +=	-I$(NATIVE_ADJUNCT)/include
+CPPFLAGS +=	$(CROSS_ADJUNCT:%=-I%/include)
 LDFLAGS +=	-L$(NATIVE_ADJUNCT)/lib -R$(NATIVE_ADJUNCT)/lib
+LDFLAGS +=	$(CROSS_ADJUNCT:%=-L%/lib) $(CROSS_ADJUNCT:%=-R%/lib)
 
 # 3rd party code
 SMATCH=off

@@ -55,10 +55,12 @@ LDCHECKS = -Wl,$(ZASSERTDEFLIB) -Wl,$(ZGUIDANCE) -Wl,$(ZFATALWARNINGS)
 LDLIBS += -Wl,$(ZLAZYLOAD) -Wl,$(ZDIRECT) -lsqlite3 -lcrypto -lgcc -lm -lc
 LDFLAGS = $(MAPFILE.NES:%=-Wl,-M%)
 LDFLAGS += -L$(NATIVE_ADJUNCT)/lib -R$(NATIVE_ADJUNCT)/lib
+LDFLAGS += $(CROSS_ADJUNCT:%=-L%/lib/amd64) $(CROSS_ADJUNCT:%=-R%/lib/amd64)
 
 CPPFLAGS += -nostdinc
 CPPFLAGS += -Isrc/
 CPPFLAGS += -I$(NATIVE_ADJUNCT)/include
+CPPFLAGS += $(CROSS_ADJUNCT:%=-I%/include)
 
 # no install.bin
 INS.file = $(RM) $@; $(CP) $< $(@D); $(CHMOD) $(FILEMODE) $@
