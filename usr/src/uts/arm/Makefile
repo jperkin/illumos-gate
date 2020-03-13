@@ -58,7 +58,7 @@ def all install clean clobber modlist: $(KMODS) $(XMODS) #XXX: config
 PRIVS_C = $(SRC)/uts/common/os/priv_const.c
 
 $(PRIVS_C): $(PRIVS_AWK) $(PRIVS_DEF)
-	$(NAWK) -f $(PRIVS_AWK) < $(PRIVS_DEF) cfile=$@
+	$(AWK) -f $(PRIVS_AWK) < $(PRIVS_DEF) cfile=$@
 
 #
 # Prerequisites
