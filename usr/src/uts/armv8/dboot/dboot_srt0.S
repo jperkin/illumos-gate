@@ -238,7 +238,7 @@
 	cmp	x1, #(MIDR_IMPL_ARM)
 	b.ne	.Lnot_cortex_a5x_0
 	/* examine the architecture, must be 0xf */
-	ubfx	x1, x0, #15, #4
+	ubfx	x1, x0, #16, #4
 	cmp	x1, #0xF
 	b.ne	.Lnot_cortex_a5x_0
 	/* examine the part */
