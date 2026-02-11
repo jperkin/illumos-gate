@@ -11,6 +11,7 @@
 
 /*
  * Copyright 2020 Joyent, Inc.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 /*
@@ -53,6 +54,7 @@ typedef struct ctf_merge_types {
 	ctf_file_t *cm_out;		/* Output CTF file */
 	ctf_file_t *cm_src;		/* Input CTF file */
 	ctf_merge_tinfo_t *cm_tmap;	/* Type state information */
+	ulong_t cm_tmax;		/* Highest source type index */
 	boolean_t cm_dedup;		/* Are we doing a dedup? */
 	boolean_t cm_unique;		/* are we doing a uniquify? */
 } ctf_merge_types_t;
@@ -101,6 +103,8 @@ struct ctf_merge_handle {
 typedef struct ctf_merge_symbol_arg {
 	list_t *cmsa_objmap;
 	list_t *cmsa_funcmap;
+	ctf_strhash_t *cmsa_obj_hash;
+	ctf_strhash_t *cmsa_func_hash;
 	ctf_file_t *cmsa_out;
 	boolean_t cmsa_dedup;
 } ctf_merge_symbol_arg_t;
@@ -175,23 +179,42 @@ ctf_merge_diffcb(ctf_file_t *ifp, ctf_id_t iid, boolean_t same, ctf_file_t *ofp,
 	}
 }
 
+/*
+ * Resolve a source type's header, raw name, and root visibility.  The source
+ * may contain dynamic types, whose names live in their definitions.
+ */
+static const ctf_type_t *
+ctf_merge_src_info(ctf_merge_types_t *cmp, ctf_id_t id, const char **namep,
+    int *flagsp)
+{
+	ctf_file_t *fp = cmp->cm_src;
+	const ctf_type_t *tp;
+
+	if ((tp = ctf_lookup_by_id(&fp, id)) == NULL)
+		return (NULL);
+
+	if (namep != NULL)
+		*namep = ctf_type_rname(fp, tp, id);
+	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
+		*flagsp = CTF_ADD_ROOT;
+	else
+		*flagsp = CTF_ADD_NONROOT;
+
+	return (tp);
+}
+
 static int
 ctf_merge_add_number(ctf_merge_types_t *cmp, ctf_id_t id)
 {
 	int ret, flags;
-	const ctf_type_t *tp;
 	const char *name;
 	ctf_encoding_t en;
 
 	if (ctf_type_encoding(cmp->cm_src, id, &en) != 0)
 		return (CTF_ERR);
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, &name, &flags) == NULL)
+		return (CTF_ERR);
 
 	ret = ctf_add_encoded(cmp->cm_out, flags, name, &en,
 	    ctf_type_kind(cmp->cm_src, id));
@@ -208,17 +231,13 @@ static int
 ctf_merge_add_array(ctf_merge_types_t *cmp, ctf_id_t id)
 {
 	int ret, flags;
-	const ctf_type_t *tp;
 	ctf_arinfo_t ar;
 
 	if (ctf_array_info(cmp->cm_src, id, &ar) == CTF_ERR)
 		return (CTF_ERR);
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, NULL, &flags) == NULL)
+		return (CTF_ERR);
 
 	if (cmp->cm_tmap[ar.ctr_contents].cmt_map == 0) {
 		ret = ctf_merge_add_type(cmp, ar.ctr_contents);
@@ -250,16 +269,11 @@ static int
 ctf_merge_add_reftype(ctf_merge_types_t *cmp, ctf_id_t id)
 {
 	int ret, flags;
-	const ctf_type_t *tp;
 	ctf_id_t reftype;
 	const char *name;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, &name, &flags) == NULL)
+		return (CTF_ERR);
 
 	reftype = ctf_type_reference(cmp->cm_src, id);
 	if (reftype == CTF_ERR)
@@ -287,16 +301,11 @@ static int
 ctf_merge_add_typedef(ctf_merge_types_t *cmp, ctf_id_t id)
 {
 	int ret, flags;
-	const ctf_type_t *tp;
 	const char *name;
 	ctf_id_t reftype;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, &name, &flags) == NULL)
+		return (CTF_ERR);
 
 	reftype = ctf_type_reference(cmp->cm_src, id);
 	if (reftype == CTF_ERR)
@@ -321,7 +330,7 @@ ctf_merge_add_typedef(ctf_merge_types_t *cmp, ctf_id_t id)
 
 typedef struct ctf_merge_enum {
 	ctf_file_t *cme_fp;
-	ctf_id_t cme_id;
+	ctf_dtdef_t *cme_dtd;
 } ctf_merge_enum_t;
 
 static int
@@ -329,8 +338,8 @@ ctf_merge_add_enumerator(const char *name, int value, void *arg)
 {
 	ctf_merge_enum_t *cmep = arg;
 
-	return (ctf_add_enumerator(cmep->cme_fp, cmep->cme_id, name, value) ==
-	    CTF_ERR);
+	return (ctf_add_enumerator_direct(cmep->cme_fp, cmep->cme_dtd, name,
+	    value) == CTF_ERR);
 }
 
 static int
@@ -343,13 +352,10 @@ ctf_merge_add_enum(ctf_merge_types_t *cmp, ctf_id_t id)
 	ctf_merge_enum_t cme;
 	size_t size;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	tp = ctf_merge_src_info(cmp, id, &name, &flags);
+	if (tp == NULL)
+		return (CTF_ERR);
 
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
 	size = ctf_get_ctt_size(cmp->cm_src, tp, NULL, NULL);
 
 	enumid = ctf_add_enum(cmp->cm_out, flags, name, size);
@@ -357,7 +363,8 @@ ctf_merge_add_enum(ctf_merge_types_t *cmp, ctf_id_t id)
 		return (enumid);
 
 	cme.cme_fp = cmp->cm_out;
-	cme.cme_id = enumid;
+	cme.cme_dtd = ctf_dtd_lookup(cmp->cm_out, enumid);
+	VERIFY(cme.cme_dtd != NULL);
 	if (ctf_enum_iter(cmp->cm_src, id, ctf_merge_add_enumerator,
 	    &cme) != 0)
 		return (CTF_ERR);
@@ -371,15 +378,11 @@ static int
 ctf_merge_add_func(ctf_merge_types_t *cmp, ctf_id_t id)
 {
 	int ret, flags, i;
-	const ctf_type_t *tp;
 	ctf_funcinfo_t ctc;
 	ctf_id_t *argv;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, NULL, &flags) == NULL)
+		return (CTF_ERR);
 
 	if (ctf_func_info_by_id(cmp->cm_src, id, &ctc) == CTF_ERR)
 		return (ctf_set_errno(cmp->cm_out, ctf_errno(cmp->cm_src)));
@@ -425,15 +428,10 @@ static int
 ctf_merge_add_forward(ctf_merge_types_t *cmp, ctf_id_t id, uint_t kind)
 {
 	int ret, flags;
-	const ctf_type_t *tp;
 	const char *name;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, &name, &flags) == NULL)
+		return (CTF_ERR);
 
 	ret = ctf_add_forward(cmp->cm_out, flags, name, kind);
 	if (ret == CTF_ERR)
@@ -447,6 +445,7 @@ ctf_merge_add_forward(ctf_merge_types_t *cmp, ctf_id_t id, uint_t kind)
 typedef struct ctf_merge_su {
 	ctf_merge_types_t *cms_cm;
 	ctf_id_t cms_id;
+	ctf_dtdef_t *cms_dtd;
 } ctf_merge_su_t;
 
 static int
@@ -458,7 +457,7 @@ ctf_merge_add_member(const char *name, ctf_id_t type, ulong_t offset, void *arg)
 	type = cms->cms_cm->cm_tmap[type].cmt_map;
 
 	ctf_dprintf("Trying to add member %s to %d\n", name, cms->cms_id);
-	return (ctf_add_member(cms->cms_cm->cm_out, cms->cms_id, name,
+	return (ctf_add_member_direct(cms->cms_cm->cm_out, cms->cms_dtd, name,
 	    type, offset) == CTF_ERR);
 }
 
@@ -466,27 +465,31 @@ ctf_merge_add_member(const char *name, ctf_id_t type, ulong_t offset, void *arg)
  * During the first pass, we always add the generic structure and union but none
  * of its members as they might not all have been mapped yet. Instead we just
  * mark all structures and unions as needing to be fixed up.
+ *
+ * When the diff mapped a forward declaration in the output onto this source
+ * type, the mapping already names the output forward; promote it in place
+ * rather than relying on the output's name hashes, which only cover
+ * serialized types.
  */
 static int
 ctf_merge_add_sou(ctf_merge_types_t *cmp, ctf_id_t id, boolean_t forward)
 {
 	int flags, kind;
-	const ctf_type_t *tp;
 	const char *name;
 	ctf_id_t suid;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, &name, &flags) == NULL)
+		return (CTF_ERR);
 	kind = ctf_type_kind(cmp->cm_src, id);
 
-	if (kind == CTF_K_STRUCT)
+	if (forward == B_TRUE) {
+		suid = ctf_convert_forward(cmp->cm_out,
+		    cmp->cm_tmap[id].cmt_map, kind, flags);
+	} else if (kind == CTF_K_STRUCT) {
 		suid = ctf_add_struct(cmp->cm_out, flags, name);
-	else
+	} else {
 		suid = ctf_add_union(cmp->cm_out, flags, name);
+	}
 
 	ctf_dprintf("added sou \"%s\" as (%d) %d->%d\n", name, kind, id, suid);
 
@@ -497,23 +500,6 @@ ctf_merge_add_sou(ctf_merge_types_t *cmp, ctf_id_t id, boolean_t forward)
 		VERIFY(cmp->cm_tmap[id].cmt_map == 0);
 		cmp->cm_tmap[id].cmt_map = suid;
 	} else {
-		/*
-		 * If this is a forward reference then its mapping should
-		 * already exist.
-		 */
-		if (cmp->cm_tmap[id].cmt_map != suid) {
-			ctf_dprintf(
-			    "mismatch sou \"%s\" as (%d) %d->%d (exp %d)\n",
-			    name, kind, id, suid, cmp->cm_tmap[id].cmt_map);
-			ctf_hash_dump("src structs",
-			    &cmp->cm_src->ctf_structs, cmp->cm_src);
-			ctf_hash_dump("src unions",
-			    &cmp->cm_src->ctf_unions, cmp->cm_src);
-			ctf_hash_dump("out structs",
-			    &cmp->cm_out->ctf_structs, cmp->cm_out);
-			ctf_hash_dump("out unions",
-			    &cmp->cm_out->ctf_unions, cmp->cm_out);
-		}
 		VERIFY(cmp->cm_tmap[id].cmt_map == suid);
 	}
 	cmp->cm_tmap[id].cmt_fixup = B_TRUE;
@@ -559,10 +545,12 @@ ctf_merge_add_type(ctf_merge_types_t *cmp, ctf_id_t id)
 		ret = ctf_merge_add_func(cmp, id);
 		break;
 	case CTF_K_FORWARD: {
+		ctf_file_t *sfp = cmp->cm_src;
 		const ctf_type_t *tp;
 		uint_t kind;
 
-		tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
+		if ((tp = ctf_lookup_by_id(&sfp, id)) == NULL)
+			return (CTF_ERR);
 
 		/*
 		 * For forward declarations, ctt_type is the CTF_K_*
@@ -612,13 +600,14 @@ ctf_merge_fixup_sou(ctf_merge_types_t *cmp, ctf_id_t id)
 	ctf_dprintf("Trying to fix up sou %d\n", id);
 	cms.cms_cm = cmp;
 	cms.cms_id = mapid;
+	cms.cms_dtd = dtd;
 	if (ctf_member_iter(cmp->cm_src, id, ctf_merge_add_member, &cms) != 0)
 		return (CTF_ERR);
 
 	if ((size = ctf_type_size(cmp->cm_src, id)) == CTF_ERR)
 		return (CTF_ERR);
-	if (ctf_set_size(cmp->cm_out, mapid, size) == CTF_ERR)
-		return (CTF_ERR);
+	ctf_set_ctt_size(&dtd->dtd_data, size);
+	cmp->cm_out->ctf_flags |= LCTF_DIRTY;
 
 	return (0);
 }
@@ -666,9 +655,9 @@ ctf_merge_fixup_type(ctf_merge_types_t *cmp, ctf_id_t id)
 static void
 ctf_merge_dedup_remap(ctf_merge_types_t *cmp)
 {
-	int i;
+	ulong_t i;
 
-	for (i = 1; i < cmp->cm_src->ctf_typemax + 1; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		ctf_id_t tid;
 
 		if (cmp->cm_tmap[i].cmt_missing == B_TRUE) {
@@ -686,7 +675,6 @@ ctf_merge_dedup_remap(ctf_merge_types_t *cmp)
 	}
 }
 
-
 /*
  * We're going to do three passes over the containers.
  *
@@ -697,25 +685,28 @@ ctf_merge_dedup_remap(ctf_merge_types_t *cmp)
  * we may be adding a type as a forward reference that doesn't exist yet.
  * Any types that we encounter in this form, we need to add to a third pass.
  *
- * Pass 3 is the fixup pass. Here we go through and find all the types that were
- * missing in the first.
+ * Pass 3 is the fixup pass where we add members to struct/union shells created
+ * in earlier passes.  No serialization is needed at any point: the dynamic
+ * type fallbacks in ctf_lookup_by_id() and friends make newly-created types
+ * immediately visible, both within this merge and to any later merge or diff
+ * that consumes the output.  The final container is serialized once, by
+ * ctf_merge_merge() or by a standalone dedup.
  *
- * Importantly, we *must* call ctf_update between the second and third pass,
- * otherwise several of the libctf functions will not properly find the data in
- * the container. If we're doing a dedup we also fix up the type mapping.
+ * If we're doing a dedup we also fix up the type mapping.
  */
 static int
 ctf_merge_common(ctf_merge_types_t *cmp)
 {
-	int ret, i;
+	ulong_t i;
+	int ret;
 
 	ctf_phase_dump(cmp->cm_src, "merge-common-src", NULL);
 	ctf_phase_dump(cmp->cm_out, "merge-common-dest", NULL);
 
 	/* Pass 1 */
-	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		if (cmp->cm_tmap[i].cmt_forward == B_TRUE) {
-			ctf_dprintf("Forward %d\n", i);
+			ctf_dprintf("Forward %lu\n", i);
 			ret = ctf_merge_add_sou(cmp, i, B_TRUE);
 			if (ret != 0) {
 				return (ret);
@@ -724,19 +715,15 @@ ctf_merge_common(ctf_merge_types_t *cmp)
 	}
 
 	/* Pass 2 */
-	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		if (cmp->cm_tmap[i].cmt_missing == B_TRUE) {
 			ret = ctf_merge_add_type(cmp, i);
 			if (ret != 0) {
-				ctf_dprintf("Failed to merge type %d\n", i);
+				ctf_dprintf("Failed to merge type %lu\n", i);
 				return (ret);
 			}
 		}
 	}
-
-	ret = ctf_update(cmp->cm_out);
-	if (ret != 0)
-		return (ret);
 
 	if (cmp->cm_dedup == B_TRUE) {
 		ctf_merge_dedup_remap(cmp);
@@ -744,7 +731,7 @@ ctf_merge_common(ctf_merge_types_t *cmp)
 
 	ctf_dprintf("Beginning merge pass 3\n");
 	/* Pass 3 */
-	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		if (cmp->cm_tmap[i].cmt_fixup == B_TRUE) {
 			ret = ctf_merge_fixup_type(cmp, i);
 			if (ret != 0)
@@ -764,9 +751,10 @@ ctf_merge_common(ctf_merge_types_t *cmp)
 static int
 ctf_merge_uniquify_types(ctf_merge_types_t *cmp)
 {
-	int i, ret;
+	ulong_t i;
+	int ret;
 
-	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		if (cmp->cm_tmap[i].cmt_missing == B_FALSE)
 			continue;
 		ret = ctf_merge_add_type(cmp, i);
@@ -774,11 +762,7 @@ ctf_merge_uniquify_types(ctf_merge_types_t *cmp)
 			return (ret);
 	}
 
-	ret = ctf_update(cmp->cm_out);
-	if (ret != 0)
-		return (ret);
-
-	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		if (cmp->cm_tmap[i].cmt_fixup == B_FALSE)
 			continue;
 		ret = ctf_merge_fixup_type(cmp, i);
@@ -792,12 +776,13 @@ ctf_merge_uniquify_types(ctf_merge_types_t *cmp)
 static int
 ctf_merge_types_init(ctf_merge_types_t *cmp)
 {
+	cmp->cm_tmax = ctf_dyn_typemax(cmp->cm_src);
 	cmp->cm_tmap = ctf_alloc(sizeof (ctf_merge_tinfo_t) *
-	    (cmp->cm_src->ctf_typemax + 1));
+	    (cmp->cm_tmax + 1));
 	if (cmp->cm_tmap == NULL)
 		return (ctf_set_errno(cmp->cm_out, ENOMEM));
 	bzero(cmp->cm_tmap, sizeof (ctf_merge_tinfo_t) *
-	    (cmp->cm_src->ctf_typemax + 1));
+	    (cmp->cm_tmax + 1));
 	return (0);
 }
 
@@ -805,7 +790,7 @@ static void
 ctf_merge_types_fini(ctf_merge_types_t *cmp)
 {
 	ctf_free(cmp->cm_tmap, sizeof (ctf_merge_tinfo_t) *
-	    (cmp->cm_src->ctf_typemax + 1));
+	    (cmp->cm_tmax + 1));
 }
 
 /*
@@ -879,14 +864,15 @@ ctf_merge_types(void *arg, void *arg2, void **outp, void *unsued)
 	ret = ctf_diff_types(cdp, ctf_merge_diffcb, &cm);
 	if (ret != 0)
 		goto cleanup;
+
+	/*
+	 * The newly merged types stay dynamic; ctf_merge_merge() serializes
+	 * the final container once after the last merge.
+	 */
 	ret = ctf_merge_common(&cm);
 	ctf_dprintf("merge common returned with %d\n", ret);
-	if (ret == 0) {
-		ret = ctf_update(out);
-		ctf_dprintf("update returned with %d\n", ret);
-	} else {
+	if (ret != 0)
 		goto cleanup;
-	}
 
 	/*
 	 * Now we need to fix up the object and function maps.
@@ -960,8 +946,6 @@ ctf_uniquify_types(ctf_merge_t *cmh, ctf_file_t *src, ctf_file_t **outp)
 	if (ret == 0) {
 		cm.cm_out = out;
 		ret = ctf_merge_uniquify_types(&cm);
-		if (ret == 0)
-			ret = ctf_update(out);
 	}
 
 	if (ret != 0) {
@@ -1151,7 +1135,7 @@ ctf_merge_add_symbol(const Elf64_Sym *symp, ulong_t idx, const char *file,
 	 * will find the value zero. This indicates no type ID for
 	 * objects and encodes unknown information for functions.
 	 */
-	if (fp->ctf_sxlate[idx] == -1u)
+	if (fp->ctf_sxlate == NULL || fp->ctf_sxlate[idx] == -1u)
 		return (0);
 	data = (ushort_t *)((uintptr_t)fp->ctf_buf + fp->ctf_sxlate[idx]);
 	if (*data == 0)
@@ -1185,6 +1169,95 @@ ctf_merge_add_symbol(const Elf64_Sym *symp, ulong_t idx, const char *file,
 }
 
 /*
+ * Build omap/fmap entries directly from the input container's dsd list,
+ * bypassing the symtab walk and ctf_sxlate lookup.  Requires ctf_symvalid
+ * and ctf_symfile to have been precomputed.
+ */
+static int
+ctf_merge_add_dsd(ctf_merge_input_t *cmi, ctf_file_t *input)
+{
+	ctf_dsdef_t *dsd;
+	uintptr_t symbase = (uintptr_t)input->ctf_symtab.cts_data;
+	uintptr_t strbase = (uintptr_t)input->ctf_strtab.cts_data;
+
+	for (dsd = ctf_list_next(&input->ctf_dsdefs); dsd != NULL;
+	    dsd = ctf_list_next(dsd)) {
+		ulong_t idx = dsd->dsd_symidx;
+		const char *name, *file;
+		uint_t svtype;
+		Elf64_Sym sym;
+		int ret;
+
+		if (idx >= input->ctf_nsyms)
+			continue;
+
+		svtype = input->ctf_symvalid[idx];
+		if (svtype == CTF_SV_SKIP || svtype == CTF_SV_FILE)
+			continue;
+
+		if (input->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
+			const Elf32_Sym *symp = (Elf32_Sym *)symbase + idx;
+			uint_t bind, itype;
+
+			sym.st_name = symp->st_name;
+			sym.st_value = symp->st_value;
+			sym.st_size = symp->st_size;
+			bind = ELF32_ST_BIND(symp->st_info);
+			itype = ELF32_ST_TYPE(symp->st_info);
+			sym.st_info = ELF64_ST_INFO(bind, itype);
+			sym.st_other = symp->st_other;
+			sym.st_shndx = symp->st_shndx;
+		} else {
+			sym = *((Elf64_Sym *)symbase + idx);
+		}
+
+		name = (const char *)(strbase + sym.st_name);
+		file = input->ctf_symfile[idx];
+
+		if (svtype == CTF_SV_OBJECT) {
+			ret = ctf_merge_add_object(cmi, dsd->dsd_tid,
+			    idx, file, name, &sym);
+			if (ret != 0)
+				return (ret);
+		} else {
+			ctf_merge_funcmap_t *fmap;
+			uint_t argc = dsd->dsd_nargs;
+			uint_t flags = 0;
+			uint_t i;
+
+			if (argc != 0 && dsd->dsd_argc[argc - 1] == 0) {
+				flags |= CTF_FUNC_VARARG;
+				argc--;
+			}
+
+			fmap = ctf_alloc(sizeof (ctf_merge_funcmap_t) +
+			    sizeof (ctf_id_t) * argc);
+			if (fmap == NULL)
+				return (ENOMEM);
+
+			fmap->cmf_idx = idx;
+			fmap->cmf_sym = sym;
+			fmap->cmf_rtid = dsd->dsd_tid;
+			fmap->cmf_flags = flags;
+			fmap->cmf_argc = argc;
+			fmap->cmf_name = name;
+			if (ELF64_ST_BIND(sym.st_info) == STB_LOCAL) {
+				fmap->cmf_file = file;
+			} else {
+				fmap->cmf_file = NULL;
+			}
+
+			for (i = 0; i < argc; i++)
+				fmap->cmf_args[i] = dsd->dsd_argc[i];
+
+			list_insert_tail(&cmi->cmi_fmap, fmap);
+		}
+	}
+
+	return (0);
+}
+
+/*
  * Whenever we create an entry to merge, we then go and add a second empty
  * ctf_file_t which we use for the purposes of our merging. It's not the best,
  * but it's the best that we've got at the moment.
@@ -1213,8 +1286,13 @@ ctf_merge_add(ctf_merge_t *cmh, ctf_file_t *input)
 	    offsetof(ctf_merge_objmap_t, cmo_node));
 
 	if (cmh->cmh_msyms == B_TRUE) {
-		if ((ret = ctf_symtab_iter(input, ctf_merge_add_symbol,
-		    cmi)) != 0) {
+		if (input->ctf_symvalid != NULL &&
+		    input->ctf_symfile != NULL)
+			ret = ctf_merge_add_dsd(cmi, input);
+		else
+			ret = ctf_symtab_iter(input, ctf_merge_add_symbol,
+			    cmi);
+		if (ret != 0) {
 			ctf_merge_fini_input(cmi);
 			return (ret);
 		}
@@ -1232,7 +1310,7 @@ ctf_merge_add(ctf_merge_t *cmh, ctf_file_t *input)
 	list_create(&cmi->cmi_omap, sizeof (ctf_merge_funcmap_t),
 	    offsetof(ctf_merge_objmap_t, cmo_node));
 
-	empty = ctf_fdcreate(cmh->cmh_ofd, &ret);
+	empty = ctf_create(&ret);
 	if (empty == NULL)
 		return (ret);
 	cmi->cmi_input = empty;
@@ -1360,6 +1438,90 @@ ctf_merge_symbol_match(const char *ctf_file, const char *ctf_name,
 }
 
 /*
+ * Append a function or object mapping to the output container's pending
+ * symbol definitions.  ctf_update() serializes the list with a single
+ * ordered walk of the symbol table, so entries must be appended in
+ * ascending symbol index order.
+ */
+static int
+ctf_merge_dsd_append(ctf_file_t *fp, ulong_t idx, ctf_id_t tid, uint_t argc,
+    const ctf_id_t *args, uint_t flags)
+{
+	ctf_dsdef_t *dsd, *tail;
+
+	tail = ctf_list_prev(&fp->ctf_dsdefs);
+	VERIFY(tail == NULL || tail->dsd_symidx < idx);
+
+	dsd = ctf_alloc(sizeof (ctf_dsdef_t));
+	if (dsd == NULL)
+		return (ENOMEM);
+
+	dsd->dsd_symidx = idx;
+	dsd->dsd_tid = tid;
+	dsd->dsd_nargs = argc;
+	if (flags & CTF_FUNC_VARARG)
+		dsd->dsd_nargs++;
+	if (dsd->dsd_nargs != 0) {
+		dsd->dsd_argc = ctf_alloc(sizeof (ctf_id_t) * dsd->dsd_nargs);
+		if (dsd->dsd_argc == NULL) {
+			ctf_free(dsd, sizeof (ctf_dsdef_t));
+			return (ENOMEM);
+		}
+		if (argc != 0)
+			bcopy(args, dsd->dsd_argc, sizeof (ctf_id_t) * argc);
+		if (flags & CTF_FUNC_VARARG)
+			dsd->dsd_argc[argc] = 0;
+	} else {
+		dsd->dsd_argc = NULL;
+	}
+
+	ctf_list_append(&fp->ctf_dsdefs, dsd);
+	fp->ctf_flags |= LCTF_DIRTY;
+
+	return (0);
+}
+
+/*
+ * Build the object and function name hashes used to match symbols against a
+ * merge input's maps.  On failure any partially constructed state is
+ * destroyed; on success the caller must destroy both hashes.
+ */
+static int
+ctf_merge_symhash_create(ctf_merge_input_t *cmi, ctf_strhash_t *objhash,
+    ctf_strhash_t *funchash)
+{
+	ctf_merge_objmap_t *cmo;
+	ctf_merge_funcmap_t *cmf;
+	size_t nobj = 0, nfunc = 0;
+
+	bzero(objhash, sizeof (ctf_strhash_t));
+	bzero(funchash, sizeof (ctf_strhash_t));
+
+	for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
+	    cmo = list_next(&cmi->cmi_omap, cmo))
+		nobj++;
+	for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
+	    cmf = list_next(&cmi->cmi_fmap, cmf))
+		nfunc++;
+
+	if (ctf_strhash_create(objhash, nobj) != 0 ||
+	    ctf_strhash_create(funchash, nfunc) != 0) {
+		ctf_strhash_destroy(objhash);
+		ctf_strhash_destroy(funchash);
+		return (ENOMEM);
+	}
+
+	for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
+	    cmo = list_next(&cmi->cmi_omap, cmo))
+		(void) ctf_strhash_insert(objhash, cmo->cmo_name, 0, cmo);
+	for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
+	    cmf = list_next(&cmi->cmi_fmap, cmf))
+		(void) ctf_strhash_insert(funchash, cmf->cmf_name, 0, cmf);
+
+	return (0);
+}
+
+/*
  * For each symbol, try and find a match. We will attempt to find an exact
  * match; however, we will settle for a fuzzy match in general. There is one
  * case where we will not opt to use a fuzzy match, which is when performing the
@@ -1385,10 +1547,14 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 
 	if (type == STT_OBJECT) {
 		ctf_merge_objmap_t *cmo, *match = NULL;
+		ctf_strhash_elem_t *elem;
 
-		for (cmo = list_head(csa->cmsa_objmap); cmo != NULL;
-		    cmo = list_next(csa->cmsa_objmap, cmo)) {
+		for (elem = ctf_strhash_lookup(csa->cmsa_obj_hash, name, 0);
+		    elem != NULL;
+		    elem = ctf_strhash_next(csa->cmsa_obj_hash, elem)) {
 			boolean_t is_fuzzy = B_FALSE;
+
+			cmo = elem->h_value;
 			if (ctf_merge_symbol_match(cmo->cmo_file, cmo->cmo_name,
 			    &cmo->cmo_sym, file, name, symp, &is_fuzzy)) {
 				if (is_fuzzy && csa->cmsa_dedup &&
@@ -1407,20 +1573,21 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 			return (0);
 		}
 
-		if ((err = ctf_add_object(fp, idx, match->cmo_tid)) != 0) {
-			ctf_dprintf("Failed to add symbol %s->%d: %s\n", name,
-			    match->cmo_tid, ctf_errmsg(ctf_errno(fp)));
-			return (ctf_errno(fp));
-		}
+		if ((err = ctf_merge_dsd_append(fp, idx, match->cmo_tid,
+		    0, NULL, 0)) != 0)
+			return (err);
 		ctf_dprintf("mapped object into output %s/%s->%ld\n", file,
 		    name, match->cmo_tid);
 	} else {
 		ctf_merge_funcmap_t *cmf, *match = NULL;
-		ctf_funcinfo_t fi;
+		ctf_strhash_elem_t *elem;
 
-		for (cmf = list_head(csa->cmsa_funcmap); cmf != NULL;
-		    cmf = list_next(csa->cmsa_funcmap, cmf)) {
+		for (elem = ctf_strhash_lookup(csa->cmsa_func_hash, name, 0);
+		    elem != NULL;
+		    elem = ctf_strhash_next(csa->cmsa_func_hash, elem)) {
 			boolean_t is_fuzzy = B_FALSE;
+
+			cmf = elem->h_value;
 			if (ctf_merge_symbol_match(cmf->cmf_file, cmf->cmf_name,
 			    &cmf->cmf_sym, file, name, symp, &is_fuzzy)) {
 				if (is_fuzzy && csa->cmsa_dedup &&
@@ -1439,15 +1606,9 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 			return (0);
 		}
 
-		fi.ctc_return = match->cmf_rtid;
-		fi.ctc_argc = match->cmf_argc;
-		fi.ctc_flags = match->cmf_flags;
-		if ((err = ctf_add_function(fp, idx, &fi, match->cmf_args)) !=
-		    0) {
-			ctf_dprintf("Failed to add function %s: %s\n", name,
-			    ctf_errmsg(ctf_errno(fp)));
-			return (ctf_errno(fp));
-		}
+		if ((err = ctf_merge_dsd_append(fp, idx, match->cmf_rtid,
+		    match->cmf_argc, match->cmf_args, match->cmf_flags)) != 0)
+			return (err);
 		ctf_dprintf("mapped function into output %s/%s\n", file,
 		    name);
 	}
@@ -1506,6 +1667,35 @@ ctf_merge_merge(ctf_merge_t *cmh, ctf_file_t **outp)
 	out = final->cmi_input;
 	final->cmi_input = NULL;
 
+	/*
+	 * The merge tree was built from ctf_create() containers that have no
+	 * symtab.  Attach one from the output fd before symbol matching.  If
+	 * the output has no symtab either, there is nothing to match against:
+	 * out->ctf_nsyms stays zero and the symbol merge below is a no-op.
+	 */
+	if (out->ctf_symtab.cts_data == NULL && cmh->cmh_msyms == B_TRUE) {
+		ctf_file_t *symtmpl;
+
+		symtmpl = ctf_fdcreate(cmh->cmh_ofd, &err);
+		if (symtmpl == NULL) {
+			ctf_close(out);
+			return (err);
+		}
+		if (symtmpl->ctf_symtab.cts_data != NULL) {
+			out->ctf_symtab = symtmpl->ctf_symtab;
+			out->ctf_strtab = symtmpl->ctf_strtab;
+			out->ctf_symtab.cts_name = _CTF_NULLSTR;
+			out->ctf_strtab.cts_name = _CTF_NULLSTR;
+			out->ctf_nsyms =
+			    symtmpl->ctf_symtab.cts_size /
+			    symtmpl->ctf_symtab.cts_entsize;
+			symtmpl->ctf_symtab.cts_data = NULL;
+			symtmpl->ctf_strtab.cts_data = NULL;
+			out->ctf_flags |= LCTF_MMAP;
+		}
+		ctf_close(symtmpl);
+	}
+
 	ctf_dprintf("preparing to uniquify against: %p\n", cmh->cmh_unique);
 	if (cmh->cmh_unique != NULL) {
 		ctf_file_t *u;
@@ -1519,7 +1709,7 @@ ctf_merge_merge(ctf_merge_t *cmh, ctf_file_t **outp)
 		out = u;
 	}
 
-	ltype = out->ctf_typemax;
+	ltype = ctf_dyn_typemax(out);
 	if ((out->ctf_flags & LCTF_CHILD) && ltype != 0)
 		ltype += CTF_CHILD_START;
 	ctf_dprintf("trying to add the label\n");
@@ -1531,12 +1721,24 @@ ctf_merge_merge(ctf_merge_t *cmh, ctf_file_t **outp)
 
 	ctf_dprintf("merging symbols and the like\n");
 	if (cmh->cmh_msyms == B_TRUE) {
+		ctf_strhash_t obj_hash, func_hash;
 		ctf_merge_symbol_arg_t arg;
+
+		if ((err = ctf_merge_symhash_create(final, &obj_hash,
+		    &func_hash)) != 0) {
+			ctf_close(out);
+			return (err);
+		}
+
 		arg.cmsa_objmap = &final->cmi_omap;
 		arg.cmsa_funcmap = &final->cmi_fmap;
+		arg.cmsa_obj_hash = &obj_hash;
+		arg.cmsa_func_hash = &func_hash;
 		arg.cmsa_out = out;
 		arg.cmsa_dedup = B_FALSE;
 		err = ctf_symtab_iter(out, ctf_merge_symbols, &arg);
+		ctf_strhash_destroy(&obj_hash);
+		ctf_strhash_destroy(&func_hash);
 		if (err != 0) {
 			ctf_close(out);
 			return (err);
@@ -1643,8 +1845,6 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 	ctf_dprintf("Successfully diffed types\n");
 	ret = ctf_merge_common(&cm);
 	ctf_dprintf("deduping types result: %d\n", ret);
-	if (ret == 0)
-		ret = ctf_update(cm.cm_out);
 	if (ret != 0)
 		goto err;
 
@@ -1657,20 +1857,121 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 	ctf_merge_fixup_symmaps(&cm, cmi);
 
 	if (cmp->cmh_msyms == B_TRUE) {
-		ctf_merge_symbol_arg_t arg;
-		arg.cmsa_objmap = &cmi->cmi_omap;
-		arg.cmsa_funcmap = &cmi->cmi_fmap;
-		arg.cmsa_out = cm.cm_out;
-		arg.cmsa_dedup = B_TRUE;
-		ret = ctf_symtab_iter(cm.cm_out, ctf_merge_symbols, &arg);
-		if (ret != 0) {
-			ctf_dprintf("failed to dedup symbols: %s\n",
-			    ctf_errmsg(ret));
-			goto err;
+		ctf_merge_objmap_t *cmo;
+		ctf_merge_funcmap_t *cmf;
+
+		/*
+		 * The dedup output was created with ctf_create() and has
+		 * no symtab.  Borrow one from the input if available,
+		 * otherwise fall back to ctf_fdcreate().
+		 *
+		 * If the source has LCTF_MMAP, its symtab/strtab are
+		 * mmap'd sections that will be munmap'd when the source
+		 * is closed.  Transfer ownership to the output so the
+		 * data survives the source's close.
+		 */
+		if (cm.cm_out->ctf_symtab.cts_data == NULL &&
+		    cm.cm_src->ctf_symtab.cts_data != NULL) {
+			cm.cm_out->ctf_symtab = cm.cm_src->ctf_symtab;
+			cm.cm_out->ctf_strtab = cm.cm_src->ctf_strtab;
+			cm.cm_out->ctf_symtab.cts_name = _CTF_NULLSTR;
+			cm.cm_out->ctf_strtab.cts_name = _CTF_NULLSTR;
+			cm.cm_out->ctf_nsyms = cm.cm_src->ctf_nsyms;
+			cm.cm_out->ctf_symvalid = cm.cm_src->ctf_symvalid;
+			cm.cm_out->ctf_symfile = cm.cm_src->ctf_symfile;
+			if (cm.cm_src->ctf_flags & LCTF_MMAP) {
+				cm.cm_src->ctf_symtab.cts_data = NULL;
+				cm.cm_src->ctf_strtab.cts_data = NULL;
+				cm.cm_out->ctf_flags |= LCTF_MMAP;
+			}
+			if (cm.cm_src->ctf_flags & LCTF_SV_OWNED) {
+				cm.cm_src->ctf_flags &= ~LCTF_SV_OWNED;
+				cm.cm_out->ctf_flags |= LCTF_SV_OWNED;
+			}
+		} else if (cm.cm_out->ctf_symtab.cts_data == NULL) {
+			ctf_file_t *symtmpl;
+
+			symtmpl = ctf_fdcreate(cmp->cmh_ofd, &ret);
+			if (symtmpl == NULL)
+				goto err;
+			if (symtmpl->ctf_symtab.cts_data != NULL) {
+				cm.cm_out->ctf_symtab = symtmpl->ctf_symtab;
+				cm.cm_out->ctf_strtab = symtmpl->ctf_strtab;
+				cm.cm_out->ctf_symtab.cts_name = _CTF_NULLSTR;
+				cm.cm_out->ctf_strtab.cts_name = _CTF_NULLSTR;
+				cm.cm_out->ctf_nsyms =
+				    symtmpl->ctf_symtab.cts_size /
+				    symtmpl->ctf_symtab.cts_entsize;
+				symtmpl->ctf_symtab.cts_data = NULL;
+				symtmpl->ctf_strtab.cts_data = NULL;
+				cm.cm_out->ctf_flags |= LCTF_MMAP;
+			}
+			ctf_close(symtmpl);
+		}
+
+		if (cm.cm_out->ctf_symvalid != NULL) {
+			/*
+			 * Batch mode: the omap and fmap were built from the
+			 * same symtab now attached to cm_out, so the dsds can
+			 * be built directly by index, bypassing the full
+			 * symtab walk and name-based matching.  Both maps are
+			 * in ascending symbol index order; interleave them so
+			 * that the dsd list is too.
+			 */
+			cmo = list_head(&cmi->cmi_omap);
+			cmf = list_head(&cmi->cmi_fmap);
+			while (cmo != NULL || cmf != NULL) {
+				if (cmf == NULL || (cmo != NULL &&
+				    cmo->cmo_idx < cmf->cmf_idx)) {
+					ret = ctf_merge_dsd_append(cm.cm_out,
+					    cmo->cmo_idx, cmo->cmo_tid,
+					    0, NULL, 0);
+					cmo = list_next(&cmi->cmi_omap, cmo);
+				} else {
+					ret = ctf_merge_dsd_append(cm.cm_out,
+					    cmf->cmf_idx, cmf->cmf_rtid,
+					    cmf->cmf_argc, cmf->cmf_args,
+					    cmf->cmf_flags);
+					cmf = list_next(&cmi->cmi_fmap, cmf);
+				}
+				if (ret != 0)
+					goto err;
+			}
+		} else {
+			ctf_merge_symbol_arg_t arg;
+			ctf_strhash_t obj_hash, func_hash;
+
+			if ((ret = ctf_merge_symhash_create(cmi, &obj_hash,
+			    &func_hash)) != 0)
+				goto err;
+
+			arg.cmsa_objmap = &cmi->cmi_omap;
+			arg.cmsa_funcmap = &cmi->cmi_fmap;
+			arg.cmsa_obj_hash = &obj_hash;
+			arg.cmsa_func_hash = &func_hash;
+			arg.cmsa_out = cm.cm_out;
+			arg.cmsa_dedup = B_TRUE;
+			ret = ctf_symtab_iter(cm.cm_out,
+			    ctf_merge_symbols, &arg);
+			ctf_strhash_destroy(&obj_hash);
+			ctf_strhash_destroy(&func_hash);
+			if (ret != 0) {
+				ctf_dprintf("failed to dedup symbols: %s\n",
+				    ctf_errmsg(ret));
+				goto err;
+			}
 		}
 	}
 
-	ret = ctf_update(cm.cm_out);
+	/*
+	 * In batch mode the dedup output feeds a merge, which reads dynamic
+	 * types and pending symbols directly; only a standalone dedup result
+	 * must be serialized here.
+	 */
+	if (cm.cm_out->ctf_symvalid != NULL)
+		ret = 0;
+	else
+		ret = ctf_update(cm.cm_out);
 	if (ret == 0) {
 		cmc->cmi_input = NULL;
 		*outp = cm.cm_out;
