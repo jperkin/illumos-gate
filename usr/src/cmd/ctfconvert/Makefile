@@ -11,6 +11,7 @@
 
 #
 # Copyright (c) 2015, Joyent, Inc.
+# Copyright 2026 Edgecast Cloud LLC.
 #
 
 PROG= ctfconvert
@@ -18,7 +19,7 @@ PROG= ctfconvert
 include ../Makefile.cmd
 
 CFLAGS += $(CCVERBOSE)
-LDLIBS += -lctf -lelf
+LDLIBS += -lctf -lelf -lumem
 
 .KEEP_STATE:
 
