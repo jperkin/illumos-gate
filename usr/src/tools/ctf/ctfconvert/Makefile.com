@@ -15,8 +15,8 @@ SRCS = ctfconvert.c
 include ../../Makefile.ctf
 
 CFLAGS += $(CCVERBOSE)
-LDLIBS += -lctf -lelf
-NATIVE_LIBS += libelf.so libc.so
+LDLIBS += -lctf -lelf -lumem
+NATIVE_LIBS += libelf.so libc.so libumem.so
 
 LDFLAGS = \
 	-L$(ROOTONBLDLIBMACH) \
