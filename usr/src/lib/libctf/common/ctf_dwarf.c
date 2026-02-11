@@ -31,6 +31,7 @@
  * Copyright 2020 Joyent, Inc.
  * Copyright 2020 Robert Mustacchi
  * Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 /*
@@ -252,6 +253,26 @@ typedef struct ctf_dwbitf {
 } ctf_dwbitf_t;
 
 /*
+ * Pre-processed symbol table entry for hash-based lookup during
+ * funcvar matching.  Built once per batch from the shared symtab
+ * template and shared read-only across all CUs.
+ */
+typedef struct ctf_dwarf_symentry {
+	const char	*dse_file;	/* STT_FILE name, or NULL */
+	ulong_t		dse_idx;	/* symbol table index */
+	uint_t		dse_bind;	/* STB_LOCAL, STB_GLOBAL */
+	uint_t		dse_type;	/* STT_FUNC or STT_OBJECT */
+	boolean_t	dse_primary;	/* primary file? */
+} ctf_dwarf_symentry_t;
+
+typedef struct ctf_dwarf_symhash {
+	ctf_strhash_t		dsh_hash;	/* name -> symentry hash */
+	ctf_dwarf_symentry_t	*dsh_entries;	/* flat entry array */
+	size_t			dsh_nalloc;	/* entries allocated */
+	size_t			dsh_nused;	/* entries used */
+} ctf_dwarf_symhash_t;
+
+/*
  * The ctf_cu_t represents a single top-level DWARF die unit. While generally,
  * the typical object file has only a single die, if we're asked to convert
  * something that's been linked from multiple sources, multiple dies will exist.
@@ -266,6 +287,7 @@ typedef struct ctf_die {
 	ctf_list_t	cu_bitfields;	/* Bit field members */
 	Dwarf_Debug	cu_dwarf;	/* libdwarf handle */
 	mutex_t		*cu_dwlock;	/* libdwarf lock */
+	uint_t		cu_dwlockdepth;	/* lock nesting depth */
 	Dwarf_Die	cu_cu;		/* libdwarf compilation unit */
 	Dwarf_Off	cu_cuoff;	/* cu's offset */
 	Dwarf_Off	cu_maxoff;	/* maximum offset */
@@ -282,6 +304,8 @@ typedef struct ctf_die {
 	uint_t		cu_mach;	/* machine type */
 	ctf_id_t	cu_voidtid;	/* void pointer */
 	ctf_id_t	cu_longtid;	/* id for a 'long' */
+	ctf_file_t	*cu_symtmpl;	/* shared symtab template container */
+	ctf_dwarf_symhash_t *cu_symhash;	/* shared sym name hash */
 } ctf_cu_t;
 
 static int ctf_dwarf_init_die(ctf_cu_t *);
@@ -295,11 +319,15 @@ static int ctf_dwarf_convert_fargs(ctf_cu_t *, Dwarf_Die, ctf_funcinfo_t *,
     ctf_id_t *);
 
 #define	DWARF_LOCK(cup) \
-	if ((cup)->cu_dwlock != NULL) \
-		mutex_enter((cup)->cu_dwlock)
+	if ((cup)->cu_dwlock != NULL) { \
+		if ((cup)->cu_dwlockdepth++ == 0) \
+			mutex_enter((cup)->cu_dwlock); \
+	}
 #define	DWARF_UNLOCK(cup) \
-	if ((cup)->cu_dwlock != NULL) \
-		mutex_exit((cup)->cu_dwlock)
+	if ((cup)->cu_dwlock != NULL) { \
+		if (--(cup)->cu_dwlockdepth == 0) \
+			mutex_exit((cup)->cu_dwlock); \
+	}
 
 /*
  * This is a generic way to set a CTF Conversion backend error depending on what
@@ -515,6 +543,46 @@ ctf_dwarf_refdie(ctf_cu_t *cup, Dwarf_Die die, Dwarf_Half name,
 	}
 
 	return (0);
+}
+
+/*
+ * Combine the common refdie + convert_type pattern with an AVL fast path.
+ * Most type references during fixup passes point to types already converted in
+ * pass 1, so we can resolve them from the cu_map AVL tree without calling
+ * dwarf_offdie() (which requires a costly CU context linear scan).
+ */
+static int
+ctf_dwarf_convert_reftype(ctf_cu_t *cup, Dwarf_Die die, Dwarf_Half attr,
+    ctf_id_t *idp, int isroot)
+{
+	int ret;
+	Dwarf_Off off;
+	Dwarf_Die tdie;
+	Dwarf_Error derr;
+	ctf_dwmap_t lookup, *map;
+
+	if ((ret = ctf_dwarf_ref(cup, die, attr, &off)) != 0)
+		return (ret);
+
+	off += cup->cu_cuoff;
+
+	lookup.cdm_off = off;
+	if ((map = avl_find(&cup->cu_map, &lookup, NULL)) != NULL) {
+		*idp = map->cdm_id;
+		return (0);
+	}
+
+	DWARF_LOCK(cup);
+	ret = dwarf_offdie(cup->cu_dwarf, off, &tdie, &derr);
+	DWARF_UNLOCK(cup);
+	if (ret != DW_DLV_OK) {
+		(void) snprintf(cup->cu_errbuf, cup->cu_errlen,
+		    "failed to get die from offset %" DW_PR_DUu ": %s\n",
+		    off, dwarf_errmsg(derr));
+		return (ECTF_CONVBKERR);
+	}
+
+	return (ctf_dwarf_convert_type(cup, tdie, idp, isroot));
 }
 
 static int
@@ -1380,14 +1448,16 @@ ctf_dwarf_member_bitfield(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t *idp)
 }
 
 static int
-ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
+ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base)
 {
 	int ret, kind;
 	Dwarf_Die child, memb;
 	Dwarf_Unsigned size;
+	ctf_dtdef_t *dtd;
 
-	kind = ctf_type_kind(cup->cu_ctfp, base);
-	VERIFY(kind != CTF_ERR);
+	dtd = ctf_dtd_lookup(cup->cu_ctfp, base);
+	VERIFY(dtd != NULL);
+	kind = CTF_INFO_KIND(dtd->dtd_data.ctt_info);
 	VERIFY(kind == CTF_K_STRUCT || kind == CTF_K_UNION);
 
 	/*
@@ -1398,12 +1468,18 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
 	if (child == NULL)
 		return (0);
 
+	/*
+	 * A single pass both creates any missing member types (previously a
+	 * separate pass) and adds the members.  The dynamic type fallback in
+	 * ctf_lookup_by_id() makes newly-created types visible to the member
+	 * conversion helpers without an intermediate serialization.
+	 */
 	memb = child;
 	while (memb != NULL) {
-		Dwarf_Die sib, tdie;
+		Dwarf_Die sib;
 		Dwarf_Half tag;
 		ctf_id_t mid;
-		char *mname;
+		char *mname = NULL;
 		ulong_t memboff = 0;
 
 		if ((ret = ctf_dwarf_tag(cup, memb, &tag)) != 0)
@@ -1412,23 +1488,9 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
 		if (tag != DW_TAG_member)
 			goto next;
 
-		if ((ret = ctf_dwarf_refdie(cup, memb, DW_AT_type, &tdie)) != 0)
+		if ((ret = ctf_dwarf_convert_reftype(cup, memb, DW_AT_type,
+		    &mid, CTF_ADD_NONROOT)) != 0)
 			return (ret);
-
-		if ((ret = ctf_dwarf_convert_type(cup, tdie, &mid,
-		    CTF_ADD_NONROOT)) != 0)
-			return (ret);
-		ctf_dprintf("Got back type id: %d\n", mid);
-
-		/*
-		 * If we're not adding a member, just go ahead and return.
-		 */
-		if (add == B_FALSE) {
-			if ((ret = ctf_dwarf_member_bitfield(cup, memb,
-			    &mid)) != 0)
-				return (ret);
-			goto next;
-		}
 
 		if ((ret = ctf_dwarf_string(cup, memb, DW_AT_name,
 		    &mname)) != 0 && ret != ENOENT)
@@ -1440,26 +1502,25 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
 			memboff = 0;
 		} else if ((ret = ctf_dwarf_member_offset(cup, memb, mid,
 		    &memboff)) != 0) {
-			if (mname != NULL)
-				ctf_strfree(mname);
+			ctf_strfree(mname);
 			return (ret);
 		}
 
-		if ((ret = ctf_dwarf_member_bitfield(cup, memb, &mid)) != 0)
+		if ((ret = ctf_dwarf_member_bitfield(cup, memb, &mid)) != 0) {
+			ctf_strfree(mname);
 			return (ret);
+		}
 
-		ret = ctf_add_member(cup->cu_ctfp, base, mname, mid, memboff);
-		if (ret == CTF_ERR) {
+		if (ctf_add_member_direct(cup->cu_ctfp, dtd, mname, mid,
+		    memboff) == CTF_ERR) {
 			(void) snprintf(cup->cu_errbuf, cup->cu_errlen,
-			    "failed to add member %s: %s\n",
-			    mname, ctf_errmsg(ctf_errno(cup->cu_ctfp)));
-			if (mname != NULL)
-				ctf_strfree(mname);
+			    "failed to add member %s: %s\n", mname,
+			    ctf_errmsg(ctf_errno(cup->cu_ctfp)));
+			ctf_strfree(mname);
 			return (ECTF_CONVBKERR);
 		}
 
-		if (mname != NULL)
-			ctf_strfree(mname);
+		ctf_strfree(mname);
 
 next:
 		if ((ret = ctf_dwarf_sib(cup, memb, &sib)) != 0)
@@ -1467,23 +1528,11 @@ next:
 		memb = sib;
 	}
 
-	/*
-	 * If we're not adding members, then we don't know the final size of the
-	 * structure, so end here.
-	 */
-	if (add == B_FALSE)
-		return (0);
-
-	/* Finally set the size of the structure to the actual byte size */
+	/* Set the size directly from DWARF, avoiding a redundant dtd lookup */
 	if ((ret = ctf_dwarf_unsigned(cup, die, DW_AT_byte_size, &size)) != 0)
 		return (ret);
-	if ((ctf_set_size(cup->cu_ctfp, base, size)) == CTF_ERR) {
-		int e = ctf_errno(cup->cu_ctfp);
-		(void) snprintf(cup->cu_errbuf, cup->cu_errlen,
-		    "failed to set type size for %d to 0x%x: %s\n", base,
-		    (uint32_t)size, ctf_errmsg(e));
-		return (ECTF_CONVBKERR);
-	}
+	ctf_set_ctt_size(&dtd->dtd_data, size);
+	cup->cu_ctfp->ctf_flags |= LCTF_DIRTY;
 
 	return (0);
 }
@@ -1751,13 +1800,11 @@ static int
 ctf_dwarf_create_array(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t *idp, int isroot)
 {
 	int ret;
-	Dwarf_Die tdie, rdie;
+	Dwarf_Die rdie;
 	ctf_id_t tid;
 	Dwarf_Half rtag;
 
-	if ((ret = ctf_dwarf_refdie(cup, die, DW_AT_type, &tdie)) != 0)
-		return (ret);
-	if ((ret = ctf_dwarf_convert_type(cup, tdie, &tid,
+	if ((ret = ctf_dwarf_convert_reftype(cup, die, DW_AT_type, &tid,
 	    CTF_ADD_NONROOT)) != 0)
 		return (ret);
 
@@ -1859,7 +1906,6 @@ ctf_dwarf_create_reference(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t *idp,
 {
 	int ret;
 	ctf_id_t id;
-	Dwarf_Die tdie;
 	char *name;
 
 	if ((ret = ctf_dwarf_string(cup, die, DW_AT_name, &name)) != 0 &&
@@ -1870,7 +1916,8 @@ ctf_dwarf_create_reference(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t *idp,
 
 	ctf_dprintf("reference kind %d %s\n", kind, name != NULL ? name : "<>");
 
-	if ((ret = ctf_dwarf_refdie(cup, die, DW_AT_type, &tdie)) != 0) {
+	if ((ret = ctf_dwarf_convert_reftype(cup, die, DW_AT_type, &id,
+	    CTF_ADD_NONROOT)) != 0) {
 		if (ret != ENOENT) {
 			ctf_strfree(name);
 			return (ret);
@@ -1878,12 +1925,6 @@ ctf_dwarf_create_reference(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t *idp,
 		if ((id = ctf_dwarf_void(cup)) == CTF_ERR) {
 			ctf_strfree(name);
 			return (ctf_errno(cup->cu_ctfp));
-		}
-	} else {
-		if ((ret = ctf_dwarf_convert_type(cup, tdie, &id,
-		    CTF_ADD_NONROOT)) != 0) {
-			ctf_strfree(name);
-			return (ret);
 		}
 	}
 
@@ -2056,7 +2097,6 @@ ctf_dwarf_create_fptr(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t *idp, int isroot)
 	int ret;
 	Dwarf_Bool b;
 	ctf_funcinfo_t fi;
-	Dwarf_Die retdie;
 	ctf_id_t *argv = NULL;
 
 	bzero(&fi, sizeof (ctf_funcinfo_t));
@@ -2072,15 +2112,12 @@ ctf_dwarf_create_fptr(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t *idp, int isroot)
 	/*
 	 * Return type is in DW_AT_type, if none, it returns void.
 	 */
-	if ((ret = ctf_dwarf_refdie(cup, die, DW_AT_type, &retdie)) != 0) {
+	if ((ret = ctf_dwarf_convert_reftype(cup, die, DW_AT_type,
+	    &fi.ctc_return, CTF_ADD_NONROOT)) != 0) {
 		if (ret != ENOENT)
 			return (ret);
 		if ((fi.ctc_return = ctf_dwarf_void(cup)) == CTF_ERR)
 			return (ctf_errno(cup->cu_ctfp));
-	} else {
-		if ((ret = ctf_dwarf_convert_type(cup, retdie, &fi.ctc_return,
-		    CTF_ADD_NONROOT)) != 0)
-			return (ret);
 	}
 
 	if ((ret = ctf_dwarf_function_count(cup, die, &fi, B_TRUE)) != 0) {
@@ -2295,14 +2332,8 @@ ctf_dwarf_convert_fargs(ctf_cu_t *cup, Dwarf_Die die, ctf_funcinfo_t *fip,
 		if ((ret = ctf_dwarf_tag(cup, arg, &tag)) != 0)
 			return (ret);
 		if (tag == DW_TAG_formal_parameter) {
-			Dwarf_Die tdie;
-
-			if ((ret = ctf_dwarf_refdie(cup, arg, DW_AT_type,
-			    &tdie)) != 0)
-				return (ret);
-
-			if ((ret = ctf_dwarf_convert_type(cup, tdie, &argv[i],
-			    CTF_ADD_ROOT)) != 0)
+			if ((ret = ctf_dwarf_convert_reftype(cup, arg,
+			    DW_AT_type, &argv[i], CTF_ADD_ROOT)) != 0)
 				return (ret);
 			i++;
 
@@ -2327,7 +2358,6 @@ static int
 ctf_dwarf_convert_function(ctf_cu_t *cup, Dwarf_Die die)
 {
 	ctf_dwfunc_t *cdf;
-	Dwarf_Die tdie;
 	Dwarf_Bool b;
 	char *name;
 	int ret;
@@ -2373,18 +2403,13 @@ ctf_dwarf_convert_function(ctf_cu_t *cup, Dwarf_Die die)
 	bzero(cdf, sizeof (ctf_dwfunc_t));
 	cdf->cdf_name = name;
 
-	if ((ret = ctf_dwarf_refdie(cup, die, DW_AT_type, &tdie)) == 0) {
-		if ((ret = ctf_dwarf_convert_type(cup, tdie,
-		    &(cdf->cdf_fip.ctc_return), CTF_ADD_ROOT)) != 0) {
+	if ((ret = ctf_dwarf_convert_reftype(cup, die, DW_AT_type,
+	    &(cdf->cdf_fip.ctc_return), CTF_ADD_ROOT)) != 0) {
+		if (ret != ENOENT) {
 			ctf_strfree(name);
 			ctf_free(cdf, sizeof (ctf_dwfunc_t));
 			return (ret);
 		}
-	} else if (ret != ENOENT) {
-		ctf_strfree(name);
-		ctf_free(cdf, sizeof (ctf_dwfunc_t));
-		return (ret);
-	} else {
 		if ((cdf->cdf_fip.ctc_return = ctf_dwarf_void(cup)) ==
 		    CTF_ERR) {
 			ctf_strfree(name);
@@ -2488,14 +2513,11 @@ ctf_dwarf_convert_variable(ctf_cu_t *cup, Dwarf_Die die)
 	if (ret == ENOENT)
 		return (0);
 
-	if ((ret = ctf_dwarf_refdie(cup, die, DW_AT_type, &tdie)) != 0) {
+	if ((ret = ctf_dwarf_convert_reftype(cup, die, DW_AT_type, &id,
+	    CTF_ADD_ROOT)) != 0) {
 		ctf_strfree(name);
 		return (ret);
 	}
-
-	if ((ret = ctf_dwarf_convert_type(cup, tdie, &id,
-	    CTF_ADD_ROOT)) != 0)
-		return (ret);
 
 	if ((cdv = ctf_alloc(sizeof (ctf_dwvar_t))) == NULL) {
 		ctf_strfree(name);
@@ -2589,7 +2611,7 @@ ctf_dwarf_convert_die(ctf_cu_t *cup, Dwarf_Die die)
 }
 
 static int
-ctf_dwarf_fixup_die(ctf_cu_t *cup, boolean_t addpass)
+ctf_dwarf_fixup_die(ctf_cu_t *cup)
 {
 	ctf_dwmap_t *map;
 
@@ -2598,8 +2620,8 @@ ctf_dwarf_fixup_die(ctf_cu_t *cup, boolean_t addpass)
 		int ret;
 		if (map->cdm_fix == B_FALSE)
 			continue;
-		if ((ret = ctf_dwarf_fixup_sou(cup, map->cdm_die, map->cdm_id,
-		    addpass)) != 0)
+		if ((ret = ctf_dwarf_fixup_sou(cup, map->cdm_die,
+		    map->cdm_id)) != 0)
 			return (ret);
 	}
 
@@ -2767,9 +2789,157 @@ ctf_dwarf_conv_funcvars_cb(const Elf64_Sym *symp, ulong_t idx,
 }
 
 static int
+ctf_dwarf_symhash_build_cb(const Elf64_Sym *symp, ulong_t idx,
+    const char *file, const char *name, boolean_t primary, void *arg)
+{
+	ctf_dwarf_symhash_t *hash = arg;
+	ctf_dwarf_symentry_t *ent;
+	uint_t bind = GELF_ST_BIND(symp->st_info);
+
+	if (bind == STB_WEAK)
+		return (0);
+
+	VERIFY(hash->dsh_nused < hash->dsh_nalloc);
+	ent = &hash->dsh_entries[hash->dsh_nused++];
+	ent->dse_file = file;
+	ent->dse_idx = idx;
+	ent->dse_bind = bind;
+	ent->dse_type = GELF_ST_TYPE(symp->st_info);
+	ent->dse_primary = primary;
+
+	(void) ctf_strhash_insert(&hash->dsh_hash, name, 0, ent);
+
+	return (0);
+}
+
+static ctf_dwarf_symhash_t *
+ctf_dwarf_symhash_build(ctf_file_t *fp)
+{
+	ctf_dwarf_symhash_t *hash;
+
+	if (fp->ctf_symtab.cts_data == NULL || fp->ctf_nsyms == 0)
+		return (NULL);
+
+	hash = ctf_alloc(sizeof (ctf_dwarf_symhash_t));
+	if (hash == NULL)
+		return (NULL);
+
+	if (ctf_strhash_create(&hash->dsh_hash, fp->ctf_nsyms) != 0) {
+		ctf_free(hash, sizeof (ctf_dwarf_symhash_t));
+		return (NULL);
+	}
+
+	hash->dsh_nalloc = fp->ctf_nsyms;
+	hash->dsh_nused = 0;
+	hash->dsh_entries = ctf_alloc(
+	    sizeof (ctf_dwarf_symentry_t) * fp->ctf_nsyms);
+	if (hash->dsh_entries == NULL) {
+		ctf_strhash_destroy(&hash->dsh_hash);
+		ctf_free(hash, sizeof (ctf_dwarf_symhash_t));
+		return (NULL);
+	}
+
+	(void) ctf_symtab_iter(fp, ctf_dwarf_symhash_build_cb, hash);
+
+	return (hash);
+}
+
+static void
+ctf_dwarf_symhash_free(ctf_dwarf_symhash_t *hash)
+{
+	if (hash == NULL)
+		return;
+	ctf_strhash_destroy(&hash->dsh_hash);
+	if (hash->dsh_entries != NULL)
+		ctf_free(hash->dsh_entries,
+		    sizeof (ctf_dwarf_symentry_t) * hash->dsh_nalloc);
+	ctf_free(hash, sizeof (ctf_dwarf_symhash_t));
+}
+
+/*
+ * Match CU functions and variables against the symbol table using a pre-built
+ * hash table keyed on symbol name, rather than walking the entire symbol table
+ * for each CU.
+ *
+ * A fuzzy match maps the symbol only when it is the primary instance of its
+ * name.  A symbol may match more than one same-named entry, in which case
+ * ctf_add_function() or ctf_add_object() fails with ECTF_CONFLICT for all but
+ * the first; the first match wins, as it did when this code walked the
+ * symbol table instead.
+ */
+static int
 ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
 {
-	return (ctf_symtab_iter(cup->cu_ctfp, ctf_dwarf_conv_funcvars_cb, cup));
+	ctf_dwarf_symhash_t *hash = cup->cu_symhash;
+	ctf_dwfunc_t *cdf;
+	ctf_dwvar_t *cdv;
+	ctf_strhash_elem_t *elem;
+	ctf_dwarf_symentry_t *ent;
+
+	if (hash == NULL) {
+		return (ctf_symtab_iter(cup->cu_ctfp,
+		    ctf_dwarf_conv_funcvars_cb, cup));
+	}
+
+	for (cdf = ctf_list_next(&cup->cu_funcs); cdf != NULL;
+	    cdf = ctf_list_next(cdf)) {
+		for (elem = ctf_strhash_lookup(&hash->dsh_hash,
+		    cdf->cdf_name, 0); elem != NULL;
+		    elem = ctf_strhash_next(&hash->dsh_hash, elem)) {
+			boolean_t is_fuzzy = B_FALSE;
+
+			ent = (ctf_dwarf_symentry_t *)elem->h_value;
+			if (ent->dse_type != STT_FUNC)
+				continue;
+			if (ent->dse_bind == STB_LOCAL &&
+			    (ent->dse_file == NULL || cup->cu_name == NULL))
+				continue;
+
+			if (!ctf_dwarf_symbol_match(ent->dse_file,
+			    cdf->cdf_name, ent->dse_bind, cup->cu_name,
+			    cdf->cdf_name, cdf->cdf_global, &is_fuzzy))
+				continue;
+
+			if (is_fuzzy && !ent->dse_primary)
+				continue;
+
+			if (ctf_add_function(cup->cu_ctfp, ent->dse_idx,
+			    &cdf->cdf_fip, cdf->cdf_argv) == CTF_ERR &&
+			    ctf_errno(cup->cu_ctfp) != ECTF_CONFLICT)
+				return (ctf_errno(cup->cu_ctfp));
+		}
+	}
+
+	for (cdv = ctf_list_next(&cup->cu_vars); cdv != NULL;
+	    cdv = ctf_list_next(cdv)) {
+		for (elem = ctf_strhash_lookup(&hash->dsh_hash,
+		    cdv->cdv_name, 0); elem != NULL;
+		    elem = ctf_strhash_next(&hash->dsh_hash, elem)) {
+			boolean_t is_fuzzy = B_FALSE;
+
+			ent = (ctf_dwarf_symentry_t *)elem->h_value;
+			if (ent->dse_type != STT_OBJECT)
+				continue;
+			if (ent->dse_bind == STB_LOCAL &&
+			    (ent->dse_file == NULL || cup->cu_name == NULL))
+				continue;
+
+			if (!ctf_dwarf_symbol_match(ent->dse_file,
+			    cdv->cdv_name, ent->dse_bind, cup->cu_name,
+			    cdv->cdv_name, cdv->cdv_global, &is_fuzzy))
+				continue;
+
+			if (is_fuzzy && !ent->dse_primary)
+				continue;
+
+			if (ctf_add_object(cup->cu_ctfp, ent->dse_idx,
+			    cdv->cdv_type) == CTF_ERR &&
+			    ctf_errno(cup->cu_ctfp) != ECTF_CONFLICT)
+				return (ctf_errno(cup->cu_ctfp));
+		}
+	}
+
+	return (0);
 }
 
 /*
@@ -2998,37 +3168,45 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 	ctf_dprintf("converting die: %s - max offset: %x\n", name,
 	    cup->cu_maxoff);
 
+	/*
+	 * Batch the convert_die and fixup phases under CU-level
+	 * DWARF locks to minimize mutex contention.  The nested locks
+	 * inside helper functions become no-ops due to depth counting.
+	 */
+	DWARF_LOCK(cup);
 	ret = ctf_dwarf_convert_die(cup, cup->cu_cu);
+	DWARF_UNLOCK(cup);
 	ctf_dprintf("ctf_dwarf_convert_die (%s) returned %d\n", name,
 	    ret);
 	if (ret != 0)
 		return (ret);
 
-	if (ctf_update(cup->cu_ctfp) != 0) {
+	DWARF_LOCK(cup);
+	ret = ctf_dwarf_fixup_die(cup);
+	DWARF_UNLOCK(cup);
+	ctf_dprintf("ctf_dwarf_fixup_die (%s) returned %d\n", name, ret);
+	if (ret != 0)
+		return (ret);
+
+	if (ctf_update_nosyms(cup->cu_ctfp) != 0) {
 		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
 		    "failed to update output ctf container"));
 	}
 
-	ret = ctf_dwarf_fixup_die(cup, B_FALSE);
-	ctf_dprintf("ctf_dwarf_fixup_die (%s, FALSE) returned %d\n", name,
-	    ret);
-	if (ret != 0)
-		return (ret);
-
-	if (ctf_update(cup->cu_ctfp) != 0) {
-		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
-		    "failed to update output ctf container"));
-	}
-
-	ret = ctf_dwarf_fixup_die(cup, B_TRUE);
-	ctf_dprintf("ctf_dwarf_fixup_die (%s, TRUE) returned %d\n", name,
-	    ret);
-	if (ret != 0)
-		return (ret);
-
-	if (ctf_update(cup->cu_ctfp) != 0) {
-		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
-		    "failed to update output ctf container"));
+	/*
+	 * Attach symtab from the shared template for funcvar matching.
+	 * The data pointers are borrowed - the template owns the mmap
+	 * and outlives all per-CU containers.
+	 */
+	if (cup->cu_symtmpl != NULL) {
+		ctf_file_t *tmpl = cup->cu_symtmpl;
+		cup->cu_ctfp->ctf_symtab = tmpl->ctf_symtab;
+		cup->cu_ctfp->ctf_strtab = tmpl->ctf_strtab;
+		cup->cu_ctfp->ctf_symtab.cts_name = _CTF_NULLSTR;
+		cup->cu_ctfp->ctf_strtab.cts_name = _CTF_NULLSTR;
+		cup->cu_ctfp->ctf_nsyms = tmpl->ctf_nsyms;
+		cup->cu_ctfp->ctf_symvalid = tmpl->ctf_symvalid;
+		cup->cu_ctfp->ctf_symfile = tmpl->ctf_symfile;
 	}
 
 	if ((ret = ctf_dwarf_conv_funcvars(cup)) != 0) {
@@ -3038,7 +3216,8 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 		    "failed to convert strong functions and variables"));
 	}
 
-	if (ctf_update(cup->cu_ctfp) != 0) {
+	if (cup->cu_symtmpl == NULL &&
+	    ctf_update(cup->cu_ctfp) != 0) {
 		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
 		    "failed to update output ctf container"));
 	}
@@ -3308,7 +3487,10 @@ ctf_dwarf_init_die(ctf_cu_t *cup)
 {
 	int ret;
 
-	cup->cu_ctfp = ctf_fdcreate(cup->cu_fd, &ret);
+	if (cup->cu_symtmpl != NULL)
+		cup->cu_ctfp = ctf_create(&ret);
+	else
+		cup->cu_ctfp = ctf_fdcreate(cup->cu_fd, &ret);
 	if (cup->cu_ctfp == NULL)
 		return (ret);
 
@@ -3467,17 +3649,35 @@ ctf_dwarf_convert_batch(uint_t start, uint_t end, int fd, uint_t nthrs,
     workq_t *wqp, ctf_cu_t *cdies, ctf_file_t **fpp)
 {
 	ctf_file_t *fpprev = NULL;
+	ctf_file_t *symtmpl = NULL;
+	ctf_dwarf_symhash_t *symhash = NULL;
 	uint_t i, added;
 	ctf_cu_t *cup;
 	int ret, err;
 
 	ctf_dprintf("Processing CU batch %u - %u\n", start, end - 1);
 
+	/*
+	 * Create a template container from the fd to cache the symtab and
+	 * strtab sections.  Per-CU containers are created via ctf_create()
+	 * (without a symtab) to avoid expensive init_symtab calls during
+	 * type-processing ctf_update(); the symtab is attached from this
+	 * template before funcvar matching.
+	 */
+	symtmpl = ctf_fdcreate(fd, &err);
+	if (symtmpl == NULL)
+		return (err);
+
+	ctf_symvalid_create(symtmpl);
+	symhash = ctf_dwarf_symhash_build(symtmpl);
+
 	added = 0;
 	for (i = start; i < end; i++) {
 		cup = &cdies[i];
 		if (cup->cu_cu == NULL)
 			continue;
+		cup->cu_symtmpl = symtmpl;
+		cup->cu_symhash = symhash;
 		ctf_dprintf("adding cu %s: %p, %x %x\n",
 		    cup->cu_name != NULL ? cup->cu_name : "NULL",
 		    cup->cu_cu, cup->cu_cuoff, cup->cu_maxoff);
@@ -3568,6 +3768,8 @@ ctf_dwarf_convert_batch(uint_t start, uint_t end, int fd, uint_t nthrs,
 
 out:
 	ctf_close(fpprev);
+	ctf_dwarf_symhash_free(symhash);
+	ctf_close(symtmpl);
 	return (err);
 }
 
@@ -3575,7 +3777,7 @@ int
 ctf_dwarf_convert(ctf_convert_t *cch, int fd, Elf *elf, ctf_file_t **fpp,
     char *errbuf, size_t errlen)
 {
-	int err, ret;
+	int err, ret, oalloc;
 	uint_t ndies, i, bsize, nthrs;
 	Dwarf_Debug dw;
 	Dwarf_Error derr;
@@ -3625,6 +3827,16 @@ ctf_dwarf_convert(ctf_convert_t *cch, int fd, Elf *elf, ctf_file_t **fpp,
 	}
 
 	bzero(cdies, sizeof (ctf_cu_t) * ndies);
+
+	/*
+	 * libdwarf records every allocation in a per-Dwarf_Debug search tree
+	 * so that dwarf_finish() can free whatever the caller forgot, at a
+	 * substantial cost on allocation-heavy work like ours.  Disable the
+	 * tracking for the duration of the conversion: explicit
+	 * dwarf_dealloc() calls still free as usual, but anything we leak is
+	 * now held until the process exits rather than until dwarf_finish().
+	 */
+	oalloc = dwarf_set_de_alloc_flag(0);
 
 	if ((err = ctf_dwarf_preinit_dies(cch, fd, elf, dw, &dwlock, &derr,
 	    ndies, cdies, errbuf, errlen)) != 0) {
@@ -3686,6 +3898,7 @@ success:
 	ctf_dprintf("successfully converted!\n");
 
 out:
+	(void) dwarf_set_de_alloc_flag(oalloc);
 	(void) dwarf_finish(dw, &derr);
 	workq_fini(wqp);
 	ctf_free(cdies, sizeof (ctf_cu_t) * ndies);
