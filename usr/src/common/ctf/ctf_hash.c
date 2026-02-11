@@ -25,6 +25,7 @@
  * Use is subject to license terms.
  *
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <ctf_impl.h>
@@ -78,9 +79,8 @@ ctf_hash_compute(const char *key, size_t len)
 {
 	ulong_t g, h = 0;
 	const char *p, *q = key + len;
-	size_t n = 0;
 
-	for (p = key; p < q; p++, n++) {
+	for (p = key; p < q; p++) {
 		h = (h << 4) + *p;
 
 		if ((g = (h & 0xf0000000)) != 0) {
@@ -198,4 +198,136 @@ ctf_hash_dump(const char *tag, ctf_hash_t *hp, ctf_file_t *fp)
 			    hep->h_type);
 		}
 	}
+}
+
+/*
+ * General-purpose hash table keyed on C string pointers.
+ *
+ * ctf_hash_t (above) is designed for use during CTF container
+ * deserialisation: its keys are string table offsets requiring a ctf_file_t
+ * for resolution, its values are ushort_t type IDs, and it is limited to
+ * USHRT_MAX entries.
+ *
+ * ctf_strhash_t is designed for transient lookups during merge, diff, and
+ * DWARF conversion, where the caller has raw C string pointers (e.g. from
+ * ctf_strptr or dwarf_formstring) and needs to associate them with arbitrary
+ * data (type IDs, struct pointers, etc.) stored as void * values.
+ *
+ * The hash table uses FNV-1a hashing with separate chaining.  Elements are
+ * pre-allocated in a flat array sized to nelems; no dynamic growth is
+ * performed.  The caller must provide an upper bound on the number of
+ * insertions at creation time.
+ *
+ * Lookup returns the first element in the matching hash chain.  Since
+ * multiple names may hash to the same bucket, the caller must walk the chain
+ * (via ctf_strhash_next) and compare h_name to filter for the desired key.
+ * Multiple entries with the same name are permitted, allowing the table to
+ * function as a multi-map (e.g. a struct and its forward declaration sharing
+ * the same name).
+ */
+int
+ctf_strhash_create(ctf_strhash_t *hp, ulong_t nelems)
+{
+	uint_t nbuckets;
+
+	if (nelems == 0) {
+		bzero(hp, sizeof (ctf_strhash_t));
+		return (0);
+	}
+
+	nbuckets = 128;
+	while (nbuckets < nelems)
+		nbuckets <<= 1;
+
+	hp->h_nbuckets = nbuckets;
+	hp->h_nelems = nelems + 1;	/* index 0 is sentinel */
+	hp->h_free = 1;
+
+	hp->h_buckets = ctf_alloc(sizeof (uint_t) * hp->h_nbuckets);
+	hp->h_chains = ctf_alloc(sizeof (ctf_strhash_elem_t) * hp->h_nelems);
+
+	if (hp->h_buckets == NULL || hp->h_chains == NULL) {
+		ctf_strhash_destroy(hp);
+		return (EAGAIN);
+	}
+
+	bzero(hp->h_buckets, sizeof (uint_t) * hp->h_nbuckets);
+	bzero(hp->h_chains, sizeof (ctf_strhash_elem_t) * hp->h_nelems);
+
+	return (0);
+}
+
+void
+ctf_strhash_destroy(ctf_strhash_t *hp)
+{
+	if (hp->h_buckets != NULL) {
+		ctf_free(hp->h_buckets, sizeof (uint_t) * hp->h_nbuckets);
+		hp->h_buckets = NULL;
+	}
+
+	if (hp->h_chains != NULL) {
+		ctf_free(hp->h_chains,
+		    sizeof (ctf_strhash_elem_t) * hp->h_nelems);
+		hp->h_chains = NULL;
+	}
+}
+
+static ulong_t
+ctf_strhash_compute(const char *key)
+{
+	ulong_t h = 2166136261u;
+
+	for (; *key != '\0'; key++) {
+		h ^= (ulong_t)(uchar_t)*key;
+		h *= 16777619u;
+	}
+
+	return (h);
+}
+
+int
+ctf_strhash_insert(ctf_strhash_t *hp, const char *name, void *value)
+{
+	ctf_strhash_elem_t *hep;
+	ulong_t h;
+
+	if (hp->h_free >= hp->h_nelems)
+		return (EOVERFLOW);
+
+	hep = &hp->h_chains[hp->h_free];
+	hep->h_name = name;
+	hep->h_value = value;
+
+	h = ctf_strhash_compute(name != NULL ? name : "") % hp->h_nbuckets;
+	hep->h_next = hp->h_buckets[h];
+	hp->h_buckets[h] = hp->h_free++;
+
+	return (0);
+}
+
+ctf_strhash_elem_t *
+ctf_strhash_lookup(ctf_strhash_t *hp, const char *name)
+{
+	ulong_t h;
+	uint_t i;
+
+	if (hp->h_buckets == NULL)
+		return (NULL);
+
+	h = ctf_strhash_compute(name != NULL ? name : "") % hp->h_nbuckets;
+	i = hp->h_buckets[h];
+
+	if (i == 0)
+		return (NULL);
+
+	return (&hp->h_chains[i]);
+}
+
+ctf_strhash_elem_t *
+ctf_strhash_next(ctf_strhash_t *hp, ctf_strhash_elem_t *elem)
+{
+	if (elem->h_next == 0)
+		return (NULL);
+
+	return (&hp->h_chains[elem->h_next]);
 }

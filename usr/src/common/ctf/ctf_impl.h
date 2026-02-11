@@ -27,6 +27,7 @@
 /*
  * Copyright 2020 Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #ifndef	_CTF_IMPL_H
@@ -80,6 +81,26 @@ typedef struct ctf_hash {
 	ushort_t h_nelems;	/* number of elements in hash table */
 	uint_t h_free;		/* index of next free hash element */
 } ctf_hash_t;
+
+/*
+ * General-purpose string hash table.  Unlike ctf_hash_t (which uses string
+ * table offsets as keys and ushort_t type IDs as values), this stores raw
+ * C string pointers and void * values, and supports tables larger than
+ * USHRT_MAX entries.
+ */
+typedef struct ctf_strhash_elem {
+	const char	*h_name;	/* key string (not copied) */
+	void		*h_value;	/* associated value */
+	uint_t		h_next;		/* index of next element in chain */
+} ctf_strhash_elem_t;
+
+typedef struct ctf_strhash {
+	uint_t			*h_buckets;	/* hash bucket array */
+	ctf_strhash_elem_t	*h_chains;	/* hash chains buffer */
+	uint_t			h_nbuckets;	/* number of hash buckets */
+	uint_t			h_nelems;	/* num of elements allocated */
+	uint_t			h_free;		/* index of next free element */
+} ctf_strhash_t;
 
 struct ctf_idhash_iter {
 	int cii_id;	/* Current iteration id */
@@ -274,6 +295,13 @@ extern ctf_helem_t *ctf_hash_lookup(ctf_hash_t *, ctf_file_t *,
 extern uint_t ctf_hash_size(const ctf_hash_t *);
 extern void ctf_hash_destroy(ctf_hash_t *);
 extern void ctf_hash_dump(const char *, ctf_hash_t *, ctf_file_t *);
+
+extern int ctf_strhash_create(ctf_strhash_t *, ulong_t);
+extern void ctf_strhash_destroy(ctf_strhash_t *);
+extern int ctf_strhash_insert(ctf_strhash_t *, const char *, void *);
+extern ctf_strhash_elem_t *ctf_strhash_lookup(ctf_strhash_t *, const char *);
+extern ctf_strhash_elem_t *ctf_strhash_next(ctf_strhash_t *,
+    ctf_strhash_elem_t *);
 
 #define	ctf_list_prev(elem)	((void *)(((ctf_list_t *)(elem))->l_prev))
 #define	ctf_list_next(elem)	((void *)(((ctf_list_t *)(elem))->l_next))
