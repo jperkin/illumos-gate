@@ -11,6 +11,7 @@
 
 /*
  * Copyright 2020 Joyent, Inc.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 /*
@@ -101,6 +102,8 @@ struct ctf_merge_handle {
 typedef struct ctf_merge_symbol_arg {
 	list_t *cmsa_objmap;
 	list_t *cmsa_funcmap;
+	ctf_strhash_t *cmsa_obj_hash;
+	ctf_strhash_t *cmsa_func_hash;
 	ctf_file_t *cmsa_out;
 	boolean_t cmsa_dedup;
 } ctf_merge_symbol_arg_t;
@@ -1385,10 +1388,16 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 
 	if (type == STT_OBJECT) {
 		ctf_merge_objmap_t *cmo, *match = NULL;
+		ctf_strhash_elem_t *elem;
 
-		for (cmo = list_head(csa->cmsa_objmap); cmo != NULL;
-		    cmo = list_next(csa->cmsa_objmap, cmo)) {
+		for (elem = ctf_strhash_lookup(csa->cmsa_obj_hash, name);
+		    elem != NULL;
+		    elem = ctf_strhash_next(csa->cmsa_obj_hash, elem)) {
 			boolean_t is_fuzzy = B_FALSE;
+
+			cmo = elem->h_value;
+			if (strcmp(cmo->cmo_name, name) != 0)
+				continue;
 			if (ctf_merge_symbol_match(cmo->cmo_file, cmo->cmo_name,
 			    &cmo->cmo_sym, file, name, symp, &is_fuzzy)) {
 				if (is_fuzzy && csa->cmsa_dedup &&
@@ -1417,10 +1426,16 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 	} else {
 		ctf_merge_funcmap_t *cmf, *match = NULL;
 		ctf_funcinfo_t fi;
+		ctf_strhash_elem_t *elem;
 
-		for (cmf = list_head(csa->cmsa_funcmap); cmf != NULL;
-		    cmf = list_next(csa->cmsa_funcmap, cmf)) {
+		for (elem = ctf_strhash_lookup(csa->cmsa_func_hash, name);
+		    elem != NULL;
+		    elem = ctf_strhash_next(csa->cmsa_func_hash, elem)) {
 			boolean_t is_fuzzy = B_FALSE;
+
+			cmf = elem->h_value;
+			if (strcmp(cmf->cmf_name, name) != 0)
+				continue;
 			if (ctf_merge_symbol_match(cmf->cmf_file, cmf->cmf_name,
 			    &cmf->cmf_sym, file, name, symp, &is_fuzzy)) {
 				if (is_fuzzy && csa->cmsa_dedup &&
@@ -1531,12 +1546,45 @@ ctf_merge_merge(ctf_merge_t *cmh, ctf_file_t **outp)
 
 	ctf_dprintf("merging symbols and the like\n");
 	if (cmh->cmh_msyms == B_TRUE) {
+		ctf_strhash_t obj_hash = { 0 }, func_hash = { 0 };
 		ctf_merge_symbol_arg_t arg;
+		ctf_merge_objmap_t *cmo;
+		ctf_merge_funcmap_t *cmf;
+		size_t nobj = 0, nfunc = 0;
+
+		for (cmo = list_head(&final->cmi_omap); cmo != NULL;
+		    cmo = list_next(&final->cmi_omap, cmo))
+			nobj++;
+		for (cmf = list_head(&final->cmi_fmap); cmf != NULL;
+		    cmf = list_next(&final->cmi_fmap, cmf))
+			nfunc++;
+
+		if (ctf_strhash_create(&obj_hash, nobj) != 0 ||
+		    ctf_strhash_create(&func_hash, nfunc) != 0) {
+			ctf_strhash_destroy(&obj_hash);
+			ctf_strhash_destroy(&func_hash);
+			ctf_close(out);
+			return (ENOMEM);
+		}
+
+		for (cmo = list_head(&final->cmi_omap); cmo != NULL;
+		    cmo = list_next(&final->cmi_omap, cmo))
+			(void) ctf_strhash_insert(&obj_hash,
+			    cmo->cmo_name, cmo);
+		for (cmf = list_head(&final->cmi_fmap); cmf != NULL;
+		    cmf = list_next(&final->cmi_fmap, cmf))
+			(void) ctf_strhash_insert(&func_hash,
+			    cmf->cmf_name, cmf);
+
 		arg.cmsa_objmap = &final->cmi_omap;
 		arg.cmsa_funcmap = &final->cmi_fmap;
+		arg.cmsa_obj_hash = &obj_hash;
+		arg.cmsa_func_hash = &func_hash;
 		arg.cmsa_out = out;
 		arg.cmsa_dedup = B_FALSE;
 		err = ctf_symtab_iter(out, ctf_merge_symbols, &arg);
+		ctf_strhash_destroy(&obj_hash);
+		ctf_strhash_destroy(&func_hash);
 		if (err != 0) {
 			ctf_close(out);
 			return (err);
@@ -1657,12 +1705,45 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 	ctf_merge_fixup_symmaps(&cm, cmi);
 
 	if (cmp->cmh_msyms == B_TRUE) {
+		ctf_strhash_t obj_hash = { 0 }, func_hash = { 0 };
 		ctf_merge_symbol_arg_t arg;
+		ctf_merge_objmap_t *cmo;
+		ctf_merge_funcmap_t *cmf;
+		size_t nobj = 0, nfunc = 0;
+
+		for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
+		    cmo = list_next(&cmi->cmi_omap, cmo))
+			nobj++;
+		for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
+		    cmf = list_next(&cmi->cmi_fmap, cmf))
+			nfunc++;
+
+		if (ctf_strhash_create(&obj_hash, nobj) != 0 ||
+		    ctf_strhash_create(&func_hash, nfunc) != 0) {
+			ctf_strhash_destroy(&obj_hash);
+			ctf_strhash_destroy(&func_hash);
+			ret = ENOMEM;
+			goto err;
+		}
+
+		for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
+		    cmo = list_next(&cmi->cmi_omap, cmo))
+			(void) ctf_strhash_insert(&obj_hash,
+			    cmo->cmo_name, cmo);
+		for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
+		    cmf = list_next(&cmi->cmi_fmap, cmf))
+			(void) ctf_strhash_insert(&func_hash,
+			    cmf->cmf_name, cmf);
+
 		arg.cmsa_objmap = &cmi->cmi_omap;
 		arg.cmsa_funcmap = &cmi->cmi_fmap;
+		arg.cmsa_obj_hash = &obj_hash;
+		arg.cmsa_func_hash = &func_hash;
 		arg.cmsa_out = cm.cm_out;
 		arg.cmsa_dedup = B_TRUE;
 		ret = ctf_symtab_iter(cm.cm_out, ctf_merge_symbols, &arg);
+		ctf_strhash_destroy(&obj_hash);
+		ctf_strhash_destroy(&func_hash);
 		if (ret != 0) {
 			ctf_dprintf("failed to dedup symbols: %s\n",
 			    ctf_errmsg(ret));
