@@ -28,6 +28,7 @@
  * Copyright 2020 Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  * Copyright 2025 Oxide Computer Company
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <sys/sysmacros.h>
@@ -293,6 +294,8 @@ ctf_update(ctf_file_t *fp)
 	ctf_dsdef_t *dsd;
 	ctf_dldef_t *dld;
 	ctf_sect_t cts, *symp, *strp;
+	ctf_sect_t saved_sym, saved_str;
+	boolean_t preserve_syms;
 
 	uchar_t *s, *s0, *t;
 	ctf_lblent_t *label;
@@ -393,7 +396,11 @@ ctf_update(ctf_file_t *fp)
 	for (objsize = 0, funcsize = 0, i = 0; i < fp->ctf_nsyms; i++) {
 		int type;
 
-		if (fp->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
+		if (fp->ctf_symvalid != NULL) {
+			type = fp->ctf_symvalid[i];
+			if (type == CTF_SV_SKIP || type == CTF_SV_FILE)
+				continue;
+		} else if (fp->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
 			const Elf32_Sym *symp = (Elf32_Sym *)symbase + i;
 
 			type = ELF32_ST_TYPE(symp->st_info);
@@ -594,7 +601,12 @@ ctf_update(ctf_file_t *fp)
 	dsd = ctf_list_next(&fp->ctf_dsdefs);
 	for (i = 0; i < fp->ctf_nsyms; i++) {
 		int type;
-		if (fp->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
+
+		if (fp->ctf_symvalid != NULL) {
+			type = fp->ctf_symvalid[i];
+			if (type == CTF_SV_SKIP || type == CTF_SV_FILE)
+				continue;
+		} else if (fp->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
 			const Elf32_Sym *symp = (Elf32_Sym *)symbase + i;
 			type = ELF32_ST_TYPE(symp->st_info);
 
@@ -683,12 +695,34 @@ ctf_update(ctf_file_t *fp)
 	nfp->ctf_dtnextid = fp->ctf_dtnextid;
 	nfp->ctf_dtoldid = fp->ctf_dtnextid - 1;
 	nfp->ctf_specific = fp->ctf_specific;
+	nfp->ctf_symvalid = fp->ctf_symvalid;
+	nfp->ctf_symfile = fp->ctf_symfile;
 
 	fp->ctf_dthash = NULL;
+	fp->ctf_symvalid = NULL;
+	fp->ctf_symfile = NULL;
 	fp->ctf_dthashlen = 0;
 	bzero(&fp->ctf_dtdefs, sizeof (ctf_list_t));
 	bzero(&fp->ctf_dsdefs, sizeof (ctf_list_t));
 	bzero(&fp->ctf_dldefs, sizeof (ctf_list_t));
+
+	/*
+	 * When a caller sets nsyms to zero to skip symbol serialization,
+	 * the container may still hold symtab/strtab section data that must
+	 * survive the swap below.  Save it now; it will be restored after
+	 * ctf_close(nfp).
+	 *
+	 * This condition is never true for normal ctf_update() calls:
+	 * containers created via ctf_create() or ctf_bufopen() with
+	 * symsect==NULL have cts_data==NULL, so the guard is false.
+	 * Containers created via ctf_fdcreate() have nsyms > 0, so symp is
+	 * non-NULL and the guard is again false.
+	 */
+	preserve_syms = (symp == NULL && fp->ctf_symtab.cts_data != NULL);
+	if (preserve_syms) {
+		saved_sym = fp->ctf_symtab;
+		saved_str = fp->ctf_strtab;
+	}
 
 	/*
 	 * Because the various containers share the data sections, we don't want
@@ -722,14 +756,85 @@ ctf_update(ctf_file_t *fp)
 	nfp->ctf_refcnt = 1; /* force nfp to be freed */
 	ctf_close(nfp);
 
+	/*
+	 * Restore the symtab/strtab section data saved above.  The
+	 * cts_data pointers are safe to reuse (they reference mmap'd
+	 * ELF data, not memory owned by the ctf_file_t).  Use
+	 * _CTF_NULLSTR for cts_name so ctf_close won't free it.
+	 */
+	if (preserve_syms) {
+		fp->ctf_symtab = saved_sym;
+		fp->ctf_symtab.cts_name = _CTF_NULLSTR;
+		fp->ctf_strtab = saved_str;
+		fp->ctf_strtab.cts_name = _CTF_NULLSTR;
+	}
+
 	return (0);
+}
+
+/*
+ * Variant of ctf_update() that serialises types only.  Setting nsyms to zero
+ * makes ctf_update() skip both symtab loops (sizing and serialization).  Any
+ * pending function or object definitions are carried over to the updated
+ * container, unserialized, for a later full ctf_update() or for direct
+ * consumption by the merge code.
+ */
+int
+ctf_update_nosyms(ctf_file_t *fp)
+{
+	uint_t saved_nsyms = fp->ctf_nsyms;
+	int ret;
+
+	fp->ctf_nsyms = 0;
+	ret = ctf_update(fp);
+	fp->ctf_nsyms = saved_nsyms;
+
+	return (ret);
+}
+
+/*
+ * Grow the dynamic type hash so that the number of buckets keeps pace with
+ * the number of dynamic types, and rehash the existing definitions.  Growth
+ * is best-effort: on allocation failure the existing table remains in use.
+ */
+static void
+ctf_dtd_grow(ctf_file_t *fp)
+{
+	ulong_t hashlen = fp->ctf_dthashlen;
+	ctf_dtdef_t **hash;
+	ctf_dtdef_t *dtd;
+
+	while (hashlen < (ulong_t)fp->ctf_dtnextid)
+		hashlen <<= 1;
+	VERIFY(hashlen != fp->ctf_dthashlen);
+
+	hash = ctf_alloc(hashlen * sizeof (ctf_dtdef_t *));
+	if (hash == NULL)
+		return;
+	bzero(hash, hashlen * sizeof (ctf_dtdef_t *));
+
+	for (dtd = ctf_list_next(&fp->ctf_dtdefs); dtd != NULL;
+	    dtd = ctf_list_next(dtd)) {
+		ulong_t h = dtd->dtd_type & (hashlen - 1);
+
+		dtd->dtd_hash = hash[h];
+		hash[h] = dtd;
+	}
+
+	ctf_free(fp->ctf_dthash, fp->ctf_dthashlen * sizeof (ctf_dtdef_t *));
+	fp->ctf_dthash = hash;
+	fp->ctf_dthashlen = hashlen;
 }
 
 void
 ctf_dtd_insert(ctf_file_t *fp, ctf_dtdef_t *dtd)
 {
-	ulong_t h = dtd->dtd_type & (fp->ctf_dthashlen - 1);
+	ulong_t h;
 
+	if ((ulong_t)fp->ctf_dtnextid > fp->ctf_dthashlen)
+		ctf_dtd_grow(fp);
+
+	h = dtd->dtd_type & (fp->ctf_dthashlen - 1);
 	dtd->dtd_hash = fp->ctf_dthash[h];
 	fp->ctf_dthash[h] = dtd;
 	ctf_list_append(&fp->ctf_dtdefs, dtd);
@@ -1345,6 +1450,38 @@ ctf_add_forward(ctf_file_t *fp, uint_t flag, const char *name, uint_t kind)
 	return (type);
 }
 
+/*
+ * Convert a forward declaration into a struct or union shell in place,
+ * preserving its type ID.  This is the promotion that ctf_add_struct() and
+ * ctf_add_union() perform when the name hash turns up a same-named forward,
+ * for callers that already know the forward's ID; the name hashes only cover
+ * serialized types, so a dynamic forward cannot be promoted by name.
+ */
+ctf_id_t
+ctf_convert_forward(ctf_file_t *fp, ctf_id_t type, uint_t kind, uint_t flag)
+{
+	ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+
+	if (kind != CTF_K_STRUCT && kind != CTF_K_UNION)
+		return (ctf_set_errno(fp, EINVAL));
+
+	if (flag != CTF_ADD_NONROOT && flag != CTF_ADD_ROOT)
+		return (ctf_set_errno(fp, EINVAL));
+
+	if (!(fp->ctf_flags & LCTF_RDWR))
+		return (ctf_set_errno(fp, ECTF_RDONLY));
+
+	if (dtd == NULL ||
+	    CTF_INFO_KIND(dtd->dtd_data.ctt_info) != CTF_K_FORWARD)
+		return (ctf_set_errno(fp, ECTF_BADID));
+
+	dtd->dtd_data.ctt_info = CTF_TYPE_INFO(kind, flag, 0);
+	dtd->dtd_data.ctt_size = 0;
+	fp->ctf_flags |= LCTF_DIRTY;
+
+	return (type);
+}
+
 ctf_id_t
 ctf_add_typedef(ctf_file_t *fp, uint_t flag, const char *name, ctf_id_t ref)
 {
@@ -1443,6 +1580,97 @@ ctf_add_enumerator(ctf_file_t *fp, ctf_id_t enid, const char *name, int value)
 	return (0);
 }
 
+/*
+ * Fast-path enumerator addition for merging.  The caller provides the dtdef
+ * directly (avoiding a hash lookup per enumerator) and vouches for the input
+ * coming from a valid container, so the per-enumerator duplicate scan that
+ * makes ctf_add_enumerator() quadratic in the enumerator count is skipped.
+ */
+int
+ctf_add_enumerator_direct(ctf_file_t *fp, ctf_dtdef_t *dtd, const char *name,
+    int value)
+{
+	ctf_dmdef_t *dmd;
+	uint_t kind, vlen, root;
+	char *s;
+
+	kind = CTF_INFO_KIND(dtd->dtd_data.ctt_info);
+	root = CTF_INFO_ISROOT(dtd->dtd_data.ctt_info);
+	vlen = CTF_INFO_VLEN(dtd->dtd_data.ctt_info);
+
+	if (name == NULL)
+		return (ctf_set_errno(fp, EINVAL));
+
+	if (vlen == CTF_MAX_VLEN)
+		return (ctf_set_errno(fp, ECTF_DTFULL));
+
+	if ((dmd = ctf_alloc(sizeof (ctf_dmdef_t))) == NULL)
+		return (ctf_set_errno(fp, EAGAIN));
+
+	if ((s = ctf_strdup(name)) == NULL) {
+		ctf_free(dmd, sizeof (ctf_dmdef_t));
+		return (ctf_set_errno(fp, EAGAIN));
+	}
+
+	dmd->dmd_name = s;
+	dmd->dmd_type = CTF_ERR;
+	dmd->dmd_offset = 0;
+	dmd->dmd_value = value;
+
+	dtd->dtd_data.ctt_info = CTF_TYPE_INFO(kind, root, vlen + 1);
+	ctf_list_append(&dtd->dtd_u.dtu_members, dmd);
+
+	fp->ctf_dtstrlen += strlen(s) + 1;
+	fp->ctf_flags |= LCTF_DIRTY;
+
+	return (0);
+}
+
+/*
+ * Fast-path member addition for DWARF conversion.  The caller provides the
+ * dtdef directly (avoiding a hash lookup per member), and commits to setting
+ * the struct/union size via ctf_set_size() after all members are added.
+ * This skips per-member size computation, duplicate detection, and reference
+ * counting - all unnecessary when building types from trusted DWARF data.
+ */
+int
+ctf_add_member_direct(ctf_file_t *fp, ctf_dtdef_t *dtd, const char *name,
+    ctf_id_t type, ulong_t offset)
+{
+	ctf_dmdef_t *dmd;
+	uint_t kind, vlen, root;
+	char *s = NULL;
+
+	kind = CTF_INFO_KIND(dtd->dtd_data.ctt_info);
+	root = CTF_INFO_ISROOT(dtd->dtd_data.ctt_info);
+	vlen = CTF_INFO_VLEN(dtd->dtd_data.ctt_info);
+
+	if (vlen == CTF_MAX_VLEN)
+		return (ctf_set_errno(fp, ECTF_DTFULL));
+
+	if ((dmd = ctf_alloc(sizeof (ctf_dmdef_t))) == NULL)
+		return (ctf_set_errno(fp, EAGAIN));
+
+	if (name != NULL && *name != '\0' && (s = ctf_strdup(name)) == NULL) {
+		ctf_free(dmd, sizeof (ctf_dmdef_t));
+		return (ctf_set_errno(fp, EAGAIN));
+	}
+
+	dmd->dmd_name = s;
+	dmd->dmd_type = type;
+	dmd->dmd_value = -1;
+	dmd->dmd_offset = offset;
+
+	dtd->dtd_data.ctt_info = CTF_TYPE_INFO(kind, root, vlen + 1);
+	ctf_list_append(&dtd->dtd_u.dtu_members, dmd);
+
+	if (s != NULL)
+		fp->ctf_dtstrlen += strlen(s) + 1;
+
+	fp->ctf_flags |= LCTF_DIRTY;
+	return (0);
+}
+
 int
 ctf_add_member(ctf_file_t *fp, ctf_id_t souid, const char *name, ctf_id_t type,
     ulong_t offset)
@@ -1451,7 +1679,7 @@ ctf_add_member(ctf_file_t *fp, ctf_id_t souid, const char *name, ctf_id_t type,
 	ctf_dmdef_t *dmd;
 
 	ulong_t mbitsz;
-	ssize_t msize, malign, ssize;
+	ssize_t msize, ssize;
 	uint_t kind, vlen, root;
 	int mkind;
 	char *s = NULL;
@@ -1488,7 +1716,6 @@ ctf_add_member(ctf_file_t *fp, ctf_id_t souid, const char *name, ctf_id_t type,
 	}
 
 	if ((msize = ctf_type_size(fp, type)) == CTF_ERR ||
-	    (malign = ctf_type_align(fp, type)) == CTF_ERR ||
 	    (mkind = ctf_type_kind(fp, type)) == CTF_ERR)
 		return (CTF_ERR); /* errno is set for us */
 
@@ -1544,6 +1771,13 @@ ctf_add_member(ctf_file_t *fp, ctf_id_t souid, const char *name, ctf_id_t type,
 		if (offset == ULONG_MAX) {
 			ctf_encoding_t linfo;
 			ssize_t lsize;
+			ssize_t malign;
+
+			if ((malign = ctf_type_align(fp, type)) == CTF_ERR) {
+				ctf_strfree(s);
+				ctf_free(dmd, sizeof (ctf_dmdef_t));
+				return (CTF_ERR); /* errno is set for us */
+			}
 
 			off = lmd->dmd_offset;
 			if (ctf_type_encoding(fp, ltype, &linfo) != CTF_ERR)
