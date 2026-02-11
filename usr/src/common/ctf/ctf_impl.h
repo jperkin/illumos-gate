@@ -27,6 +27,7 @@
 /*
  * Copyright 2020 Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #ifndef	_CTF_IMPL_H
@@ -80,6 +81,27 @@ typedef struct ctf_hash {
 	ushort_t h_nelems;	/* number of elements in hash table */
 	uint_t h_free;		/* index of next free hash element */
 } ctf_hash_t;
+
+/*
+ * General-purpose string hash table.  Unlike ctf_hash_t (which uses string
+ * table offsets as keys and ushort_t type IDs as values), this stores raw
+ * C string pointers and void * values, and supports tables larger than
+ * USHRT_MAX entries.
+ */
+typedef struct ctf_strhash_elem {
+	const char	*h_name;	/* key string (not copied) */
+	void		*h_value;	/* associated value */
+	uint_t		h_hash;		/* hash of key string and salt */
+	uint_t		h_next;		/* index of next element in chain */
+} ctf_strhash_elem_t;
+
+typedef struct ctf_strhash {
+	uint_t			*h_buckets;	/* hash bucket array */
+	ctf_strhash_elem_t	*h_chains;	/* hash chains buffer */
+	uint_t			h_nbuckets;	/* number of hash buckets */
+	uint_t			h_nelems;	/* num of elements allocated */
+	uint_t			h_free;		/* index of next free element */
+} ctf_strhash_t;
 
 struct ctf_idhash_iter {
 	int cii_id;	/* Current iteration id */
@@ -215,6 +237,8 @@ struct ctf_file {
 	size_t ctf_size;	/* size of CTF header + uncompressed data */
 	uint_t *ctf_sxlate;	/* translation table for symtab entries */
 	ulong_t ctf_nsyms;	/* number of entries in symtab xlate table */
+	uint8_t *ctf_symvalid;	/* precomputed symbol validity bitmap */
+	const char **ctf_symfile; /* precomputed per-symbol STT_FILE name */
 	uint_t *ctf_txlate;	/* translation table for type IDs */
 	ushort_t *ctf_ptrtab;	/* translation table for pointer-to lookups */
 	ulong_t ctf_typemax;	/* maximum valid type ID number */
@@ -254,6 +278,22 @@ struct ctf_file {
  * and libctf should free it with ctf_data_free() on close.
  */
 #define	LCTF_FREE	0x0010
+/*
+ * This container owns the ctf_symvalid and ctf_symfile arrays and
+ * ctf_close() should free them.  Containers that borrow the arrays copy
+ * the pointers but not this flag.
+ */
+#define	LCTF_SV_OWNED	0x0020
+
+/*
+ * Precomputed symbol validity values stored in ctf_symvalid[].  Zero means
+ * the symbol should be skipped; valid entries store the ELF symbol type so
+ * that they may be compared against STT_OBJECT and STT_FUNC directly.
+ */
+#define	CTF_SV_SKIP	0
+#define	CTF_SV_OBJECT	STT_OBJECT
+#define	CTF_SV_FUNC	STT_FUNC
+#define	CTF_SV_FILE	STT_FILE
 
 #define	CTF_ELF_SCN_NAME	".SUNW_ctf"
 
@@ -263,6 +303,8 @@ extern ssize_t ctf_get_ctt_size(const ctf_file_t *, const ctf_type_t *,
 extern void ctf_set_ctt_size(ctf_type_t *, ssize_t);
 
 extern const ctf_type_t *ctf_lookup_by_id(ctf_file_t **, ctf_id_t);
+extern const char *ctf_type_rname(ctf_file_t *, const ctf_type_t *, ctf_id_t);
+extern ulong_t ctf_dyn_typemax(const ctf_file_t *);
 
 extern ctf_file_t *ctf_fdcreate_int(int, int *, ctf_sect_t *);
 
@@ -275,6 +317,14 @@ extern uint_t ctf_hash_size(const ctf_hash_t *);
 extern void ctf_hash_destroy(ctf_hash_t *);
 extern void ctf_hash_dump(const char *, ctf_hash_t *, ctf_file_t *);
 
+extern int ctf_strhash_create(ctf_strhash_t *, ulong_t);
+extern void ctf_strhash_destroy(ctf_strhash_t *);
+extern int ctf_strhash_insert(ctf_strhash_t *, const char *, uint_t, void *);
+extern ctf_strhash_elem_t *ctf_strhash_lookup(ctf_strhash_t *, const char *,
+    uint_t);
+extern ctf_strhash_elem_t *ctf_strhash_next(ctf_strhash_t *,
+    ctf_strhash_elem_t *);
+
 #define	ctf_list_prev(elem)	((void *)(((ctf_list_t *)(elem))->l_prev))
 #define	ctf_list_next(elem)	((void *)(((ctf_list_t *)(elem))->l_next))
 
@@ -283,9 +333,17 @@ extern void ctf_list_prepend(ctf_list_t *, void *);
 extern void ctf_list_insert_before(ctf_list_t *, void *, void *);
 extern void ctf_list_delete(ctf_list_t *, void *);
 
+extern int ctf_update_nosyms(ctf_file_t *);
+
 extern void ctf_dtd_insert(ctf_file_t *, ctf_dtdef_t *);
 extern void ctf_dtd_delete(ctf_file_t *, ctf_dtdef_t *);
 extern ctf_dtdef_t *ctf_dtd_lookup(ctf_file_t *, ctf_id_t);
+
+extern int ctf_add_member_direct(ctf_file_t *, ctf_dtdef_t *, const char *,
+    ctf_id_t, ulong_t);
+extern int ctf_add_enumerator_direct(ctf_file_t *, ctf_dtdef_t *,
+    const char *, int);
+extern ctf_id_t ctf_convert_forward(ctf_file_t *, ctf_id_t, uint_t, uint_t);
 
 extern void ctf_dsd_delete(ctf_file_t *, ctf_dsdef_t *);
 extern void ctf_dld_delete(ctf_file_t *, ctf_dldef_t *);
