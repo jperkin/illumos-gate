@@ -28,6 +28,7 @@
  * Copyright 2020 Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  * Copyright 2025 Oxide Computer Company
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <ctf_impl.h>
@@ -93,6 +94,28 @@ ctf_member_iter(ctf_file_t *fp, ctf_id_t type, ctf_member_f *func, void *arg)
 	if (kind != CTF_K_STRUCT && kind != CTF_K_UNION)
 		return (ctf_set_errno(ofp, ECTF_NOTSOU));
 
+	/*
+	 * A dynamic type keeps its members in its definition rather than
+	 * trailing the type header.
+	 */
+	if (CTF_TYPE_TO_INDEX(type) > fp->ctf_typemax) {
+		const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+		const ctf_dmdef_t *dmd;
+
+		VERIFY(dtd != NULL);
+		for (dmd = ctf_list_next(&dtd->dtd_u.dtu_members);
+		    dmd != NULL; dmd = ctf_list_next(dmd)) {
+			const char *name =
+			    dmd->dmd_name != NULL ? dmd->dmd_name : "";
+
+			if ((rc = func(name, dmd->dmd_type, dmd->dmd_offset,
+			    arg)) != 0)
+				return (rc);
+		}
+
+		return (0);
+	}
+
 	if (fp->ctf_version == CTF_VERSION_1 || size < CTF_LSTRUCT_THRESH) {
 		const ctf_member_t *mp = (const ctf_member_t *)
 		    ((uintptr_t)tp + increment);
@@ -141,6 +164,25 @@ ctf_enum_iter(ctf_file_t *fp, ctf_id_t type, ctf_enum_f *func, void *arg)
 
 	if (LCTF_INFO_KIND(fp, tp->ctt_info) != CTF_K_ENUM)
 		return (ctf_set_errno(ofp, ECTF_NOTENUM));
+
+	/*
+	 * A dynamic type keeps its enumerators in its definition rather than
+	 * trailing the type header.
+	 */
+	if (CTF_TYPE_TO_INDEX(type) > fp->ctf_typemax) {
+		const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+		const ctf_dmdef_t *dmd;
+
+		VERIFY(dtd != NULL);
+		for (dmd = ctf_list_next(&dtd->dtd_u.dtu_members);
+		    dmd != NULL; dmd = ctf_list_next(dmd)) {
+			if ((rc = func(dmd->dmd_name, dmd->dmd_value,
+			    arg)) != 0)
+				return (rc);
+		}
+
+		return (0);
+	}
 
 	(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
 
@@ -693,9 +735,33 @@ ctf_type_encoding(ctf_file_t *fp, ctf_id_t type, ctf_encoding_t *ep)
 	const ctf_type_t *tp;
 	ssize_t increment;
 	uint_t data;
+	ctf_id_t idx;
 
 	if ((tp = ctf_lookup_by_id(&fp, type)) == NULL)
 		return (CTF_ERR); /* errno is set for us */
+
+	switch (LCTF_INFO_KIND(fp, tp->ctt_info)) {
+	case CTF_K_INTEGER:
+	case CTF_K_FLOAT:
+		break;
+	default:
+		return (ctf_set_errno(ofp, ECTF_NOTINTFP));
+	}
+
+	/*
+	 * A type index beyond ctf_typemax means ctf_lookup_by_id() resolved a
+	 * dynamic type, whose encoding lives in its definition, not in the
+	 * static type section.  ctf_dtd_lookup() is keyed on the full type ID,
+	 * including any child container bit.
+	 */
+	idx = CTF_TYPE_TO_INDEX(type);
+	if (idx > fp->ctf_typemax) {
+		const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+
+		VERIFY(dtd != NULL);
+		*ep = dtd->dtd_u.dtu_enc;
+		return (0);
+	}
 
 	(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
 
@@ -712,8 +778,6 @@ ctf_type_encoding(ctf_file_t *fp, ctf_id_t type, ctf_encoding_t *ep)
 		ep->cte_offset = CTF_FP_OFFSET(data);
 		ep->cte_bits = CTF_FP_BITS(data);
 		break;
-	default:
-		return (ctf_set_errno(ofp, ECTF_NOTINTFP));
 	}
 
 	return (0);
@@ -950,12 +1014,27 @@ ctf_array_info(ctf_file_t *fp, ctf_id_t type, ctf_arinfo_t *arp)
 	const ctf_type_t *tp;
 	const ctf_array_t *ap;
 	ssize_t increment;
+	ctf_id_t idx;
 
 	if ((tp = ctf_lookup_by_id(&fp, type)) == NULL)
 		return (CTF_ERR); /* errno is set for us */
 
 	if (LCTF_INFO_KIND(fp, tp->ctt_info) != CTF_K_ARRAY)
 		return (ctf_set_errno(ofp, ECTF_NOTARRAY));
+
+	/*
+	 * As in ctf_type_encoding(), array information for a dynamic type
+	 * lives in its definition; ctf_dtd_lookup() is keyed on the full
+	 * type ID.
+	 */
+	idx = CTF_TYPE_TO_INDEX(type);
+	if (idx > fp->ctf_typemax) {
+		const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+
+		VERIFY(dtd != NULL);
+		*arp = dtd->dtd_u.dtu_arr;
+		return (0);
+	}
 
 	(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
 
@@ -1136,6 +1215,16 @@ ctf_func_info_by_id(ctf_file_t *fp, ctf_id_t type, ctf_funcinfo_t *fip)
 
 	/* dp should now point to the first argument */
 	if (nargs != 0) {
+		if (CTF_TYPE_TO_INDEX(type) > fp->ctf_typemax) {
+			const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+
+			VERIFY(dtd != NULL);
+			if (dtd->dtd_u.dtu_argv[nargs - 1] == 0) {
+				fip->ctc_flags |= CTF_FUNC_VARARG;
+				fip->ctc_argc--;
+			}
+			return (0);
+		}
 		(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
 		dp = (ushort_t *)((uintptr_t)fp->ctf_buf +
 		    fp->ctf_txlate[CTF_TYPE_TO_INDEX(type)] + increment);
@@ -1164,6 +1253,22 @@ ctf_func_args_by_id(ctf_file_t *fp, ctf_id_t type, uint_t argc, ctf_id_t *argv)
 		return (ctf_set_errno(ofp, ECTF_NOTFUNC));
 
 	nargs = LCTF_INFO_VLEN(fp, tp->ctt_info);
+
+	if (CTF_TYPE_TO_INDEX(type) > fp->ctf_typemax) {
+		const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+		const ctf_id_t *ap;
+
+		VERIFY(dtd != NULL);
+		ap = dtd->dtd_u.dtu_argv;
+		if (nargs != 0 && ap[nargs - 1] == 0)
+			nargs--;
+
+		for (nargs = MIN(argc, nargs); nargs != 0; nargs--)
+			*argv++ = *ap++;
+
+		return (0);
+	}
+
 	(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
 	dp = (ushort_t *)((uintptr_t)fp->ctf_buf +
 	    fp->ctf_txlate[CTF_TYPE_TO_INDEX(type)] +
