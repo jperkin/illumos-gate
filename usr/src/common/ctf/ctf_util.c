@@ -25,6 +25,7 @@
  */
 /*
  * Copyright (c) 2015, Joyent, Inc.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <ctf_impl.h>
@@ -160,6 +161,21 @@ ctf_strfree(char *s)
 }
 
 /*
+ * Return the highest valid type index for the container, including dynamic
+ * types that have not yet been serialized.
+ */
+ulong_t
+ctf_dyn_typemax(const ctf_file_t *fp)
+{
+	ulong_t max = fp->ctf_typemax;
+
+	if (fp->ctf_dtnextid > 0 && (ulong_t)(fp->ctf_dtnextid - 1) > max)
+		max = fp->ctf_dtnextid - 1;
+
+	return (max);
+}
+
+/*
  * Store the specified error code into errp if it is non-NULL, and then
  * return NULL for the benefit of the caller.
  */
@@ -195,7 +211,8 @@ ctf_sym_valid(uintptr_t strbase, int type, uint16_t shndx, uint64_t val,
 	if (type == STT_OBJECT && shndx == SHN_ABS && val == 0)
 		return (B_FALSE);
 	name = (char *)(strbase + noff);
-	if (strcmp(name, "_START_") == 0 || strcmp(name, "_END_") == 0)
+	if (name[0] == '_' &&
+	    (strcmp(name, "_START_") == 0 || strcmp(name, "_END_") == 0))
 		return (B_FALSE);
 
 	return (B_TRUE);
