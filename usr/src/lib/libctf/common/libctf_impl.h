@@ -12,6 +12,7 @@
 /*
  * Copyright 2019 Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #ifndef _LIBCTF_IMPL_H
@@ -57,6 +58,7 @@ extern int ctf_dwarf_convert(ctf_convert_t *, int, Elf *, ctf_file_t **,
 typedef int (*ctf_symtab_f)(const Elf64_Sym *, ulong_t, const char *,
     const char *, boolean_t, void *);
 extern int ctf_symtab_iter(ctf_file_t *, ctf_symtab_f, void *);
+extern void ctf_symvalid_create(ctf_file_t *);
 
 /*
  * zlib compression routines
