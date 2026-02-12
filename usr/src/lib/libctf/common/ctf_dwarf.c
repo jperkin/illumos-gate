@@ -31,6 +31,7 @@
  * Copyright 2020 Joyent, Inc.
  * Copyright 2020 Robert Mustacchi
  * Copyright 2021 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 /*
@@ -252,6 +253,26 @@ typedef struct ctf_dwbitf {
 } ctf_dwbitf_t;
 
 /*
+ * Pre-processed symbol table entry for hash-based lookup during
+ * funcvar matching.  Built once per batch from the shared symtab
+ * template and shared read-only across all CUs.
+ */
+typedef struct ctf_dwarf_symentry {
+	const char	*dse_file;	/* STT_FILE name, or NULL */
+	ulong_t		dse_idx;	/* symbol table index */
+	uint_t		dse_bind;	/* STB_LOCAL, STB_GLOBAL */
+	uint_t		dse_type;	/* STT_FUNC or STT_OBJECT */
+	boolean_t	dse_primary;	/* primary file? */
+} ctf_dwarf_symentry_t;
+
+typedef struct ctf_dwarf_symhash {
+	ctf_strhash_t		dsh_hash;	/* name -> symentry hash */
+	ctf_dwarf_symentry_t	*dsh_entries;	/* flat entry array */
+	size_t			dsh_nalloc;	/* entries allocated */
+	size_t			dsh_nused;	/* entries used */
+} ctf_dwarf_symhash_t;
+
+/*
  * The ctf_cu_t represents a single top-level DWARF die unit. While generally,
  * the typical object file has only a single die, if we're asked to convert
  * something that's been linked from multiple sources, multiple dies will exist.
@@ -282,6 +303,8 @@ typedef struct ctf_die {
 	uint_t		cu_mach;	/* machine type */
 	ctf_id_t	cu_voidtid;	/* void pointer */
 	ctf_id_t	cu_longtid;	/* id for a 'long' */
+	ctf_file_t	*cu_symtmpl;	/* shared symtab template container */
+	ctf_dwarf_symhash_t *cu_symhash;	/* shared sym name hash */
 } ctf_cu_t;
 
 static int ctf_dwarf_init_die(ctf_cu_t *);
@@ -2767,9 +2790,179 @@ ctf_dwarf_conv_funcvars_cb(const Elf64_Sym *symp, ulong_t idx,
 }
 
 static int
+ctf_dwarf_symhash_build_cb(const Elf64_Sym *symp, ulong_t idx,
+    const char *file, const char *name, boolean_t primary, void *arg)
+{
+	ctf_dwarf_symhash_t *hash = arg;
+	ctf_dwarf_symentry_t *ent;
+	uint_t bind = GELF_ST_BIND(symp->st_info);
+
+	if (bind == STB_WEAK)
+		return (0);
+
+	VERIFY(hash->dsh_nused < hash->dsh_nalloc);
+	ent = &hash->dsh_entries[hash->dsh_nused++];
+	ent->dse_file = file;
+	ent->dse_idx = idx;
+	ent->dse_bind = bind;
+	ent->dse_type = GELF_ST_TYPE(symp->st_info);
+	ent->dse_primary = primary;
+
+	(void) ctf_strhash_insert(&hash->dsh_hash, name, ent);
+
+	return (0);
+}
+
+static ctf_dwarf_symhash_t *
+ctf_dwarf_symhash_build(ctf_file_t *fp)
+{
+	ctf_dwarf_symhash_t *hash;
+
+	if (fp->ctf_symtab.cts_data == NULL || fp->ctf_nsyms == 0)
+		return (NULL);
+
+	hash = ctf_alloc(sizeof (ctf_dwarf_symhash_t));
+	if (hash == NULL)
+		return (NULL);
+
+	if (ctf_strhash_create(&hash->dsh_hash, fp->ctf_nsyms) != 0) {
+		ctf_free(hash, sizeof (ctf_dwarf_symhash_t));
+		return (NULL);
+	}
+
+	hash->dsh_nalloc = fp->ctf_nsyms;
+	hash->dsh_nused = 0;
+	hash->dsh_entries = ctf_alloc(
+	    sizeof (ctf_dwarf_symentry_t) * fp->ctf_nsyms);
+	if (hash->dsh_entries == NULL) {
+		ctf_strhash_destroy(&hash->dsh_hash);
+		ctf_free(hash, sizeof (ctf_dwarf_symhash_t));
+		return (NULL);
+	}
+
+	(void) ctf_symtab_iter(fp, ctf_dwarf_symhash_build_cb, hash);
+
+	return (hash);
+}
+
+static void
+ctf_dwarf_symhash_free(ctf_dwarf_symhash_t *hash)
+{
+	if (hash == NULL)
+		return;
+	ctf_strhash_destroy(&hash->dsh_hash);
+	if (hash->dsh_entries != NULL)
+		ctf_free(hash->dsh_entries,
+		    sizeof (ctf_dwarf_symentry_t) * hash->dsh_nalloc);
+	ctf_free(hash, sizeof (ctf_dwarf_symhash_t));
+}
+
+/*
+ * Match CU functions and variables against the symbol table using a pre-built
+ * hash table keyed on symbol name, rather than walking the entire symbol table
+ * for each CU.
+ */
+static int
 ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
 {
-	return (ctf_symtab_iter(cup->cu_ctfp, ctf_dwarf_conv_funcvars_cb, cup));
+	ctf_dwarf_symhash_t *hash = cup->cu_symhash;
+	ctf_dwfunc_t *cdf;
+	ctf_dwvar_t *cdv;
+	ctf_strhash_elem_t *elem;
+	ctf_dwarf_symentry_t *ent, *fuzzy;
+	boolean_t is_fuzzy;
+	int ret;
+
+	if (hash == NULL) {
+		return (ctf_symtab_iter(cup->cu_ctfp,
+		    ctf_dwarf_conv_funcvars_cb, cup));
+	}
+
+	for (cdf = ctf_list_next(&cup->cu_funcs); cdf != NULL;
+	    cdf = ctf_list_next(cdf)) {
+		fuzzy = NULL;
+
+		for (elem = ctf_strhash_lookup(&hash->dsh_hash,
+		    cdf->cdf_name); elem != NULL;
+		    elem = ctf_strhash_next(&hash->dsh_hash, elem)) {
+			if (strcmp(elem->h_name, cdf->cdf_name) != 0)
+				continue;
+			ent = (ctf_dwarf_symentry_t *)elem->h_value;
+			if (ent->dse_type != STT_FUNC)
+				continue;
+			if (ent->dse_bind == STB_LOCAL &&
+			    (ent->dse_file == NULL || cup->cu_name == NULL))
+				continue;
+
+			is_fuzzy = B_FALSE;
+			if (!ctf_dwarf_symbol_match(ent->dse_file,
+			    cdf->cdf_name, ent->dse_bind, cup->cu_name,
+			    cdf->cdf_name, cdf->cdf_global, &is_fuzzy))
+				continue;
+
+			if (is_fuzzy) {
+				if (ent->dse_primary)
+					fuzzy = ent;
+				continue;
+			}
+
+			ret = ctf_add_function(cup->cu_ctfp,
+			    ent->dse_idx, &cdf->cdf_fip, cdf->cdf_argv);
+			if (ret == CTF_ERR)
+				return (ctf_errno(cup->cu_ctfp));
+		}
+
+		if (fuzzy != NULL) {
+			ret = ctf_add_function(cup->cu_ctfp,
+			    fuzzy->dse_idx, &cdf->cdf_fip, cdf->cdf_argv);
+			if (ret == CTF_ERR)
+				return (ctf_errno(cup->cu_ctfp));
+		}
+	}
+
+	for (cdv = ctf_list_next(&cup->cu_vars); cdv != NULL;
+	    cdv = ctf_list_next(cdv)) {
+		fuzzy = NULL;
+
+		for (elem = ctf_strhash_lookup(&hash->dsh_hash,
+		    cdv->cdv_name); elem != NULL;
+		    elem = ctf_strhash_next(&hash->dsh_hash, elem)) {
+			if (strcmp(elem->h_name, cdv->cdv_name) != 0)
+				continue;
+			ent = (ctf_dwarf_symentry_t *)elem->h_value;
+			if (ent->dse_type != STT_OBJECT)
+				continue;
+			if (ent->dse_bind == STB_LOCAL &&
+			    (ent->dse_file == NULL || cup->cu_name == NULL))
+				continue;
+
+			is_fuzzy = B_FALSE;
+			if (!ctf_dwarf_symbol_match(ent->dse_file,
+			    cdv->cdv_name, ent->dse_bind, cup->cu_name,
+			    cdv->cdv_name, cdv->cdv_global, &is_fuzzy))
+				continue;
+
+			if (is_fuzzy) {
+				if (ent->dse_primary)
+					fuzzy = ent;
+				continue;
+			}
+
+			ret = ctf_add_object(cup->cu_ctfp,
+			    ent->dse_idx, cdv->cdv_type);
+			if (ret == CTF_ERR)
+				return (ctf_errno(cup->cu_ctfp));
+		}
+
+		if (fuzzy != NULL) {
+			ret = ctf_add_object(cup->cu_ctfp,
+			    fuzzy->dse_idx, cdv->cdv_type);
+			if (ret == CTF_ERR)
+				return (ctf_errno(cup->cu_ctfp));
+		}
+	}
+
+	return (0);
 }
 
 /*
@@ -3467,17 +3660,34 @@ ctf_dwarf_convert_batch(uint_t start, uint_t end, int fd, uint_t nthrs,
     workq_t *wqp, ctf_cu_t *cdies, ctf_file_t **fpp)
 {
 	ctf_file_t *fpprev = NULL;
+	ctf_file_t *symtmpl = NULL;
+	ctf_dwarf_symhash_t *symhash = NULL;
 	uint_t i, added;
 	ctf_cu_t *cup;
 	int ret, err;
 
 	ctf_dprintf("Processing CU batch %u - %u\n", start, end - 1);
 
+	/*
+	 * Create a template container from the fd to cache the symtab and
+	 * strtab sections.  Per-CU containers are created via ctf_create()
+	 * (without a symtab) to avoid expensive init_symtab calls during
+	 * type-processing ctf_update(); the symtab is attached from this
+	 * template before funcvar matching.
+	 */
+	symtmpl = ctf_fdcreate(fd, &err);
+	if (symtmpl == NULL)
+		return (err);
+
+	symhash = ctf_dwarf_symhash_build(symtmpl);
+
 	added = 0;
 	for (i = start; i < end; i++) {
 		cup = &cdies[i];
 		if (cup->cu_cu == NULL)
 			continue;
+		cup->cu_symtmpl = symtmpl;
+		cup->cu_symhash = symhash;
 		ctf_dprintf("adding cu %s: %p, %x %x\n",
 		    cup->cu_name != NULL ? cup->cu_name : "NULL",
 		    cup->cu_cu, cup->cu_cuoff, cup->cu_maxoff);
@@ -3568,6 +3778,8 @@ ctf_dwarf_convert_batch(uint_t start, uint_t end, int fd, uint_t nthrs,
 
 out:
 	ctf_close(fpprev);
+	ctf_dwarf_symhash_free(symhash);
+	ctf_close(symtmpl);
 	return (err);
 }
 
