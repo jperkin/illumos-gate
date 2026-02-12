@@ -1375,7 +1375,6 @@ static int
 ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
     const char *name, boolean_t primary, void *arg)
 {
-	int err;
 	uint_t type, bind;
 	ctf_merge_symbol_arg_t *csa = arg;
 	ctf_file_t *fp = csa->cmsa_out;
@@ -1388,6 +1387,7 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 
 	if (type == STT_OBJECT) {
 		ctf_merge_objmap_t *cmo, *match = NULL;
+		ctf_dsdef_t *dsd;
 		ctf_strhash_elem_t *elem;
 
 		for (elem = ctf_strhash_lookup(csa->cmsa_obj_hash, name);
@@ -1416,16 +1416,20 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 			return (0);
 		}
 
-		if ((err = ctf_add_object(fp, idx, match->cmo_tid)) != 0) {
-			ctf_dprintf("Failed to add symbol %s->%d: %s\n", name,
-			    match->cmo_tid, ctf_errmsg(ctf_errno(fp)));
-			return (ctf_errno(fp));
-		}
+		dsd = ctf_alloc(sizeof (ctf_dsdef_t));
+		if (dsd == NULL)
+			return (ENOMEM);
+		dsd->dsd_symidx = idx;
+		dsd->dsd_tid = match->cmo_tid;
+		dsd->dsd_nargs = 0;
+		dsd->dsd_argc = NULL;
+		ctf_list_append(&fp->ctf_dsdefs, dsd);
+		fp->ctf_flags |= LCTF_DIRTY;
 		ctf_dprintf("mapped object into output %s/%s->%ld\n", file,
 		    name, match->cmo_tid);
 	} else {
 		ctf_merge_funcmap_t *cmf, *match = NULL;
-		ctf_funcinfo_t fi;
+		ctf_dsdef_t *dsd;
 		ctf_strhash_elem_t *elem;
 
 		for (elem = ctf_strhash_lookup(csa->cmsa_func_hash, name);
@@ -1454,15 +1458,30 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 			return (0);
 		}
 
-		fi.ctc_return = match->cmf_rtid;
-		fi.ctc_argc = match->cmf_argc;
-		fi.ctc_flags = match->cmf_flags;
-		if ((err = ctf_add_function(fp, idx, &fi, match->cmf_args)) !=
-		    0) {
-			ctf_dprintf("Failed to add function %s: %s\n", name,
-			    ctf_errmsg(ctf_errno(fp)));
-			return (ctf_errno(fp));
+		dsd = ctf_alloc(sizeof (ctf_dsdef_t));
+		if (dsd == NULL)
+			return (ENOMEM);
+		dsd->dsd_symidx = idx;
+		dsd->dsd_tid = match->cmf_rtid;
+		dsd->dsd_nargs = match->cmf_argc;
+		if (match->cmf_flags & CTF_FUNC_VARARG)
+			dsd->dsd_nargs++;
+		if (dsd->dsd_nargs != 0) {
+			dsd->dsd_argc = ctf_alloc(
+			    sizeof (ctf_id_t) * dsd->dsd_nargs);
+			if (dsd->dsd_argc == NULL) {
+				ctf_free(dsd, sizeof (ctf_dsdef_t));
+				return (ENOMEM);
+			}
+			bcopy(match->cmf_args, dsd->dsd_argc,
+			    sizeof (ctf_id_t) * match->cmf_argc);
+			if (match->cmf_flags & CTF_FUNC_VARARG)
+				dsd->dsd_argc[match->cmf_argc] = 0;
+		} else {
+			dsd->dsd_argc = NULL;
 		}
+		ctf_list_append(&fp->ctf_dsdefs, dsd);
+		fp->ctf_flags |= LCTF_DIRTY;
 		ctf_dprintf("mapped function into output %s/%s\n", file,
 		    name);
 	}
