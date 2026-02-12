@@ -11,6 +11,7 @@
 
 /*
  * Copyright (c) 2015 Joyent, Inc.  All rights reserved.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 /*
@@ -703,6 +704,108 @@ ctf_diff_type(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
 }
 
 /*
+ * Try a single candidate type j against source type i, handling guesses.
+ * Returns B_FALSE on match, B_TRUE on mismatch, CTF_ERR on error.
+ * On match, updates forward/reverse tables and sets *matchid = j.
+ */
+static int
+ctf_diff_try_candidate(ctf_diff_t *cds, ctf_id_t i, ctf_id_t j,
+    ctf_id_t *matchid)
+{
+	int diff;
+	ctf_diff_guess_t *cdg, *tofree;
+
+	ASSERT(cds->cds_guess == NULL);
+	diff = ctf_diff_type(cds, cds->cds_ifp, i, cds->cds_ofp, j);
+	if (diff == CTF_ERR)
+		return (CTF_ERR);
+
+	cdg = cds->cds_guess;
+	cds->cds_guess = NULL;
+	while (cdg != NULL) {
+		if (diff == B_TRUE) {
+			cds->cds_forward[TINDEX(cdg->cdg_iid)] = 0;
+			cds->cds_reverse[TINDEX(cdg->cdg_oid)] = 0;
+		}
+		tofree = cdg;
+		cdg = cdg->cdg_next;
+		ctf_free(tofree, sizeof (ctf_diff_guess_t));
+	}
+
+	if (diff == B_FALSE) {
+		cds->cds_forward[TINDEX(i)] = j;
+		if (cds->cds_reverse[TINDEX(j)] == 0)
+			cds->cds_reverse[TINDEX(j)] = i;
+		*matchid = j;
+	}
+
+	return (diff);
+}
+
+/*
+ * Iterate over hash chain candidates for source type i, filtering by kind
+ * and member count (vlen) using pre-cached arrays for O(1) lookup.  The vlen
+ * filter is effective for anonymous types which all share the empty-string
+ * hash bucket: two anonymous structs with different member counts cannot be
+ * structurally equal and are rejected without recursive comparison.
+ *
+ * Pass ivlen == (uint_t)-1 to disable the vlen filter (used for cross-kind
+ * forward declaration matching where vlen is meaningless).
+ *
+ * Returns B_FALSE if a match is found (sets *matchid), B_TRUE if no match,
+ * or CTF_ERR on error.
+ */
+static int
+ctf_diff_check_chain(ctf_diff_t *cds, ctf_strhash_t *hp,
+    uint_t kind, const char *name, ctf_id_t i, ctf_id_t *matchid,
+    uint8_t *kindcache, uint_t *vlencache, uint_t ivlen, int jstart)
+{
+	ctf_strhash_elem_t *elem;
+	int ret;
+
+	for (elem = ctf_strhash_lookup(hp, name); elem != NULL;
+	    elem = ctf_strhash_next(hp, elem)) {
+		ctf_id_t j = (ctf_id_t)(uintptr_t)elem->h_value;
+
+		if (strcmp(name, elem->h_name) != 0)
+			continue;
+		if (kindcache[j - jstart] != kind)
+			continue;
+		if (ivlen != (uint_t)-1 && vlencache[j - jstart] != ivlen)
+			continue;
+
+		ret = ctf_diff_try_candidate(cds, i, j, matchid);
+		if (ret == CTF_ERR)
+			return (CTF_ERR);
+		if (ret == B_FALSE)
+			return (B_FALSE);
+	}
+	return (B_TRUE);
+}
+
+/*
+ * Get the kind, vlen (member count), and name for a type.
+ */
+static void
+ctf_diff_get_type_info(ctf_file_t *fp, ctf_id_t id, uint_t *kindp,
+    uint_t *vlenp, const char **namep)
+{
+	ctf_file_t *ofp = fp;
+	const ctf_type_t *tp;
+
+	tp = ctf_lookup_by_id(&ofp, id);
+	if (tp == NULL) {
+		*kindp = CTF_K_UNKNOWN;
+		*vlenp = 0;
+		*namep = NULL;
+		return;
+	}
+	*kindp = LCTF_INFO_KIND(ofp, tp->ctt_info);
+	*vlenp = LCTF_INFO_VLEN(ofp, tp->ctt_info);
+	*namep = ctf_strptr(ofp, tp->ctt_name);
+}
+
+/*
  * Walk every type in the first container and try to find a match in the second.
  * If there is a match, then update both the forward and reverse mapping tables.
  *
@@ -712,8 +815,11 @@ ctf_diff_type(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
 static int
 ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 {
-	int i, j, diff;
-	int istart, iend, jstart, jend;
+	int i, istart, iend, jstart, jend;
+	ctf_strhash_t th;
+	size_t njtypes;
+	uint8_t *kindcache = NULL;
+	uint_t *vlencache = NULL;
 
 	istart = 1;
 	iend = cds->cds_ifp->ctf_typemax;
@@ -729,50 +835,86 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 		jend += CTF_CHILD_START;
 	}
 
+	/*
+	 * Build hash table of destination types for fast candidate lookup.
+	 * For the self-diff case, we start with an empty hash and
+	 * incrementally insert types as we process them.  For the non-self
+	 * case, we pre-populate with all destination types.
+	 */
+	njtypes = (jend >= jstart) ? (jend - jstart + 1) : 0;
+	if (self == B_TRUE)
+		njtypes = (iend >= istart) ? (iend - istart + 1) : 0;
+
+	if (ctf_strhash_create(&th, njtypes) != 0)
+		return (CTF_ERR);
+
+	if (njtypes > 0) {
+		kindcache = ctf_alloc(njtypes);
+		if (kindcache == NULL)
+			goto err;
+		vlencache = ctf_alloc(njtypes * sizeof (uint_t));
+		if (vlencache == NULL)
+			goto err;
+	}
+
+	if (self == B_FALSE) {
+		int j;
+		for (j = jstart; j <= jend; j++) {
+			uint_t jkind, jvlen;
+			const char *jname;
+
+			ctf_diff_get_type_info(cds->cds_ofp, j,
+			    &jkind, &jvlen, &jname);
+			kindcache[j - jstart] = (uint8_t)jkind;
+			vlencache[j - jstart] = jvlen;
+			(void) ctf_strhash_insert(&th, jname,
+			    (void *)(uintptr_t)j);
+		}
+	}
+
 	for (i = istart; i <= iend; i++) {
-		diff = B_TRUE;
+		uint_t ikind, ivlen;
+		const char *iname;
+		ctf_id_t matchid = 0;
+		int diff;
+
+		ctf_diff_get_type_info(cds->cds_ifp, i, &ikind, &ivlen,
+		    &iname);
 
 		/*
-		 * If we're doing a self diff for dedup purposes, then we want
-		 * to ensure that we compare a type i with every type in the
-		 * range, [ 1, i ). Yes, this does mean that when i equals 1,
-		 * we won't compare anything.
+		 * We need to check multiple kinds to handle forward
+		 * declarations:
+		 *
+		 * - If src is CTF_K_FORWARD: check FORWARD, STRUCT, UNION
+		 * - If src is CTF_K_STRUCT or CTF_K_UNION: check kind, FORWARD
+		 * - Otherwise: check only the exact kind
 		 */
-		if (self == B_TRUE) {
-			jstart = istart;
-			jend = i - 1;
-		}
-		for (j = jstart; j <= jend; j++) {
-			ctf_diff_guess_t *cdg, *tofree;
+		diff = ctf_diff_check_chain(cds, &th, ikind, iname, i,
+		    &matchid, kindcache, vlencache, ivlen, jstart);
+		if (diff == CTF_ERR)
+			goto err;
 
-			ASSERT(cds->cds_guess == NULL);
-			diff = ctf_diff_type(cds, cds->cds_ifp, i,
-			    cds->cds_ofp, j);
+		if (diff == B_TRUE && ikind == CTF_K_FORWARD) {
+			diff = ctf_diff_check_chain(cds, &th, CTF_K_STRUCT,
+			    iname, i, &matchid, kindcache, vlencache,
+			    (uint_t)-1, jstart);
 			if (diff == CTF_ERR)
-				return (CTF_ERR);
-
-			/* Clean up our guesses */
-			cdg = cds->cds_guess;
-			cds->cds_guess = NULL;
-			while (cdg != NULL) {
-				if (diff == B_TRUE) {
-					cds->cds_forward[TINDEX(cdg->cdg_iid)] =
-					    0;
-					cds->cds_reverse[TINDEX(cdg->cdg_oid)] =
-					    0;
-				}
-				tofree = cdg;
-				cdg = cdg->cdg_next;
-				ctf_free(tofree, sizeof (ctf_diff_guess_t));
+				goto err;
+			if (diff == B_TRUE) {
+				diff = ctf_diff_check_chain(cds, &th,
+				    CTF_K_UNION, iname, i, &matchid,
+				    kindcache, vlencache,
+				    (uint_t)-1, jstart);
+				if (diff == CTF_ERR)
+					goto err;
 			}
-
-			/* Found a hit, update the tables */
-			if (diff == B_FALSE) {
-				cds->cds_forward[TINDEX(i)] = j;
-				if (cds->cds_reverse[TINDEX(j)] == 0)
-					cds->cds_reverse[TINDEX(j)] = i;
-				break;
-			}
+		} else if (diff == B_TRUE &&
+		    (ikind == CTF_K_STRUCT || ikind == CTF_K_UNION)) {
+			diff = ctf_diff_check_chain(cds, &th, CTF_K_FORWARD,
+			    iname, i, &matchid, kindcache, vlencache,
+			    (uint_t)-1, jstart);
+			if (diff == CTF_ERR)
+				goto err;
 		}
 
 		/* Call the callback at this point */
@@ -781,12 +923,36 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 			cds->cds_func(cds->cds_ifp, i, B_FALSE, NULL, CTF_ERR,
 			    cds->cds_arg);
 		} else {
-			cds->cds_func(cds->cds_ifp, i, B_TRUE, cds->cds_ofp, j,
-			    cds->cds_arg);
+			cds->cds_func(cds->cds_ifp, i, B_TRUE, cds->cds_ofp,
+			    matchid, cds->cds_arg);
+		}
+
+		/*
+		 * For self-diff, insert after processing so that
+		 * subsequent types can find earlier ones.
+		 */
+		if (self == B_TRUE) {
+			(void) ctf_strhash_insert(&th, iname,
+			    (void *)(uintptr_t)i);
+			kindcache[i - istart] = (uint8_t)ikind;
+			vlencache[i - istart] = ivlen;
 		}
 	}
 
+	ctf_strhash_destroy(&th);
+	if (kindcache != NULL)
+		ctf_free(kindcache, njtypes);
+	if (vlencache != NULL)
+		ctf_free(vlencache, njtypes * sizeof (uint_t));
 	return (0);
+
+err:
+	ctf_strhash_destroy(&th);
+	if (kindcache != NULL)
+		ctf_free(kindcache, njtypes);
+	if (vlencache != NULL)
+		ctf_free(vlencache, njtypes * sizeof (uint_t));
+	return (CTF_ERR);
 }
 
 /*
