@@ -3197,7 +3197,7 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 	if (ret != 0)
 		return (ret);
 
-	if (ctf_update(cup->cu_ctfp) != 0) {
+	if (ctf_update_nosyms(cup->cu_ctfp) != 0) {
 		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
 		    "failed to update output ctf container"));
 	}
@@ -3208,7 +3208,7 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 	if (ret != 0)
 		return (ret);
 
-	if (ctf_update(cup->cu_ctfp) != 0) {
+	if (ctf_update_nosyms(cup->cu_ctfp) != 0) {
 		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
 		    "failed to update output ctf container"));
 	}
@@ -3219,7 +3219,7 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 	if (ret != 0)
 		return (ret);
 
-	if (ctf_update(cup->cu_ctfp) != 0) {
+	if (ctf_update_nosyms(cup->cu_ctfp) != 0) {
 		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
 		    "failed to update output ctf container"));
 	}

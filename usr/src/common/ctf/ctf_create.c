@@ -28,6 +28,7 @@
  * Copyright 2020 Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  * Copyright 2025 Oxide Computer Company
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <sys/sysmacros.h>
@@ -293,6 +294,8 @@ ctf_update(ctf_file_t *fp)
 	ctf_dsdef_t *dsd;
 	ctf_dldef_t *dld;
 	ctf_sect_t cts, *symp, *strp;
+	ctf_sect_t saved_sym, saved_str;
+	boolean_t preserve_syms;
 
 	uchar_t *s, *s0, *t;
 	ctf_lblent_t *label;
@@ -691,6 +694,24 @@ ctf_update(ctf_file_t *fp)
 	bzero(&fp->ctf_dldefs, sizeof (ctf_list_t));
 
 	/*
+	 * When a caller sets nsyms to zero to skip symbol serialization,
+	 * the container may still hold symtab/strtab section data that must
+	 * survive the swap below.  Save it now; it will be restored after
+	 * ctf_close(nfp).
+	 *
+	 * This condition is never true for normal ctf_update() calls:
+	 * containers created via ctf_create() or ctf_bufopen() with
+	 * symsect==NULL have cts_data==NULL, so the guard is false.
+	 * Containers created via ctf_fdcreate() have nsyms > 0, so symp is
+	 * non-NULL and the guard is again false.
+	 */
+	preserve_syms = (symp == NULL && fp->ctf_symtab.cts_data != NULL);
+	if (preserve_syms) {
+		saved_sym = fp->ctf_symtab;
+		saved_str = fp->ctf_strtab;
+	}
+
+	/*
 	 * Because the various containers share the data sections, we don't want
 	 * to have ctf_close free it all. However, the name of the section is in
 	 * fact unique to the ctf_sect_t. Thus we save the names of the symbol
@@ -722,7 +743,39 @@ ctf_update(ctf_file_t *fp)
 	nfp->ctf_refcnt = 1; /* force nfp to be freed */
 	ctf_close(nfp);
 
+	/*
+	 * Restore the symtab/strtab section data saved above.  The
+	 * cts_data pointers are safe to reuse (they reference mmap'd
+	 * ELF data, not memory owned by the ctf_file_t).  Use
+	 * _CTF_NULLSTR for cts_name so ctf_close won't free it.
+	 */
+	if (preserve_syms) {
+		fp->ctf_symtab = saved_sym;
+		fp->ctf_symtab.cts_name = _CTF_NULLSTR;
+		fp->ctf_strtab = saved_str;
+		fp->ctf_strtab.cts_name = _CTF_NULLSTR;
+	}
+
 	return (0);
+}
+
+/*
+ * Variant of ctf_update() that skips the symtab walk.  Used by callers that
+ * serialise types only - no function or object definitions have been added
+ * yet - so walking the symtab is wasted work.  Setting nsyms to zero makes
+ * ctf_update() skip both symtab loops (sizing and serialization).
+ */
+int
+ctf_update_nosyms(ctf_file_t *fp)
+{
+	uint_t saved_nsyms = fp->ctf_nsyms;
+	int ret;
+
+	fp->ctf_nsyms = 0;
+	ret = ctf_update(fp);
+	fp->ctf_nsyms = saved_nsyms;
+
+	return (ret);
 }
 
 void

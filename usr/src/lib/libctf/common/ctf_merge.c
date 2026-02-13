@@ -689,7 +689,6 @@ ctf_merge_dedup_remap(ctf_merge_types_t *cmp)
 	}
 }
 
-
 /*
  * We're going to do three passes over the containers.
  *
@@ -737,7 +736,7 @@ ctf_merge_common(ctf_merge_types_t *cmp)
 		}
 	}
 
-	ret = ctf_update(cmp->cm_out);
+	ret = ctf_update_nosyms(cmp->cm_out);
 	if (ret != 0)
 		return (ret);
 
@@ -777,7 +776,7 @@ ctf_merge_uniquify_types(ctf_merge_types_t *cmp)
 			return (ret);
 	}
 
-	ret = ctf_update(cmp->cm_out);
+	ret = ctf_update_nosyms(cmp->cm_out);
 	if (ret != 0)
 		return (ret);
 
@@ -885,7 +884,7 @@ ctf_merge_types(void *arg, void *arg2, void **outp, void *unsued)
 	ret = ctf_merge_common(&cm);
 	ctf_dprintf("merge common returned with %d\n", ret);
 	if (ret == 0) {
-		ret = ctf_update(out);
+		ret = ctf_update_nosyms(out);
 		ctf_dprintf("update returned with %d\n", ret);
 	} else {
 		goto cleanup;
@@ -964,7 +963,7 @@ ctf_uniquify_types(ctf_merge_t *cmh, ctf_file_t *src, ctf_file_t **outp)
 		cm.cm_out = out;
 		ret = ctf_merge_uniquify_types(&cm);
 		if (ret == 0)
-			ret = ctf_update(out);
+			ret = ctf_update_nosyms(out);
 	}
 
 	if (ret != 0) {
@@ -1154,7 +1153,7 @@ ctf_merge_add_symbol(const Elf64_Sym *symp, ulong_t idx, const char *file,
 	 * will find the value zero. This indicates no type ID for
 	 * objects and encodes unknown information for functions.
 	 */
-	if (fp->ctf_sxlate[idx] == -1u)
+	if (fp->ctf_sxlate == NULL || fp->ctf_sxlate[idx] == -1u)
 		return (0);
 	data = (ushort_t *)((uintptr_t)fp->ctf_buf + fp->ctf_sxlate[idx]);
 	if (*data == 0)
@@ -1235,7 +1234,7 @@ ctf_merge_add(ctf_merge_t *cmh, ctf_file_t *input)
 	list_create(&cmi->cmi_omap, sizeof (ctf_merge_funcmap_t),
 	    offsetof(ctf_merge_objmap_t, cmo_node));
 
-	empty = ctf_fdcreate(cmh->cmh_ofd, &ret);
+	empty = ctf_create(&ret);
 	if (empty == NULL)
 		return (ret);
 	cmi->cmi_input = empty;
@@ -1540,6 +1539,31 @@ ctf_merge_merge(ctf_merge_t *cmh, ctf_file_t **outp)
 	out = final->cmi_input;
 	final->cmi_input = NULL;
 
+	/*
+	 * The merge tree was built from ctf_create() containers that have no
+	 * symtab.  Attach one from the output fd before symbol matching.
+	 */
+	if (out->ctf_symtab.cts_data == NULL && cmh->cmh_msyms == B_TRUE) {
+		ctf_file_t *symtmpl;
+
+		symtmpl = ctf_fdcreate(cmh->cmh_ofd, &err);
+		if (symtmpl == NULL) {
+			ctf_close(out);
+			return (err);
+		}
+		out->ctf_symtab = symtmpl->ctf_symtab;
+		out->ctf_strtab = symtmpl->ctf_strtab;
+		out->ctf_symtab.cts_name = _CTF_NULLSTR;
+		out->ctf_strtab.cts_name = _CTF_NULLSTR;
+		out->ctf_nsyms =
+		    symtmpl->ctf_symtab.cts_size /
+		    symtmpl->ctf_symtab.cts_entsize;
+		symtmpl->ctf_symtab.cts_data = NULL;
+		symtmpl->ctf_strtab.cts_data = NULL;
+		out->ctf_flags |= LCTF_MMAP;
+		ctf_close(symtmpl);
+	}
+
 	ctf_dprintf("preparing to uniquify against: %p\n", cmh->cmh_unique);
 	if (cmh->cmh_unique != NULL) {
 		ctf_file_t *u;
@@ -1711,7 +1735,7 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 	ret = ctf_merge_common(&cm);
 	ctf_dprintf("deduping types result: %d\n", ret);
 	if (ret == 0)
-		ret = ctf_update(cm.cm_out);
+		ret = ctf_update_nosyms(cm.cm_out);
 	if (ret != 0)
 		goto err;
 
@@ -1729,6 +1753,30 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 		ctf_merge_objmap_t *cmo;
 		ctf_merge_funcmap_t *cmf;
 		size_t nobj = 0, nfunc = 0;
+
+		/*
+		 * The dedup output was created with ctf_create() and has
+		 * no symtab.  Attach one from the output fd with its own
+		 * mmap so the data survives after the input is closed.
+		 */
+		if (cm.cm_out->ctf_symtab.cts_data == NULL) {
+			ctf_file_t *symtmpl;
+
+			symtmpl = ctf_fdcreate(cmp->cmh_ofd, &ret);
+			if (symtmpl == NULL)
+				goto err;
+			cm.cm_out->ctf_symtab = symtmpl->ctf_symtab;
+			cm.cm_out->ctf_strtab = symtmpl->ctf_strtab;
+			cm.cm_out->ctf_symtab.cts_name = _CTF_NULLSTR;
+			cm.cm_out->ctf_strtab.cts_name = _CTF_NULLSTR;
+			cm.cm_out->ctf_nsyms =
+			    symtmpl->ctf_symtab.cts_size /
+			    symtmpl->ctf_symtab.cts_entsize;
+			symtmpl->ctf_symtab.cts_data = NULL;
+			symtmpl->ctf_strtab.cts_data = NULL;
+			cm.cm_out->ctf_flags |= LCTF_MMAP;
+			ctf_close(symtmpl);
+		}
 
 		for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
 		    cmo = list_next(&cmi->cmi_omap, cmo))

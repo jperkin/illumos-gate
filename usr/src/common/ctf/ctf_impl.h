@@ -311,6 +311,8 @@ extern void ctf_list_prepend(ctf_list_t *, void *);
 extern void ctf_list_insert_before(ctf_list_t *, void *, void *);
 extern void ctf_list_delete(ctf_list_t *, void *);
 
+extern int ctf_update_nosyms(ctf_file_t *);
+
 extern void ctf_dtd_insert(ctf_file_t *, ctf_dtdef_t *);
 extern void ctf_dtd_delete(ctf_file_t *, ctf_dtdef_t *);
 extern ctf_dtdef_t *ctf_dtd_lookup(ctf_file_t *, ctf_id_t);
