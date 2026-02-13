@@ -1756,10 +1756,29 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 
 		/*
 		 * The dedup output was created with ctf_create() and has
-		 * no symtab.  Attach one from the output fd with its own
-		 * mmap so the data survives after the input is closed.
+		 * no symtab.  Borrow one from the input if available,
+		 * otherwise fall back to ctf_fdcreate().
+		 *
+		 * If the source has LCTF_MMAP, its symtab/strtab are
+		 * mmap'd sections that will be munmap'd when the source
+		 * is closed.  Transfer ownership to the output so the
+		 * data survives the source's close.
 		 */
-		if (cm.cm_out->ctf_symtab.cts_data == NULL) {
+		if (cm.cm_out->ctf_symtab.cts_data == NULL &&
+		    cm.cm_src->ctf_symtab.cts_data != NULL) {
+			cm.cm_out->ctf_symtab = cm.cm_src->ctf_symtab;
+			cm.cm_out->ctf_strtab = cm.cm_src->ctf_strtab;
+			cm.cm_out->ctf_symtab.cts_name = _CTF_NULLSTR;
+			cm.cm_out->ctf_strtab.cts_name = _CTF_NULLSTR;
+			cm.cm_out->ctf_nsyms = cm.cm_src->ctf_nsyms;
+			cm.cm_out->ctf_symvalid = cm.cm_src->ctf_symvalid;
+			cm.cm_out->ctf_symfile = cm.cm_src->ctf_symfile;
+			if (cm.cm_src->ctf_flags & LCTF_MMAP) {
+				cm.cm_src->ctf_symtab.cts_data = NULL;
+				cm.cm_src->ctf_strtab.cts_data = NULL;
+				cm.cm_out->ctf_flags |= LCTF_MMAP;
+			}
+		} else if (cm.cm_out->ctf_symtab.cts_data == NULL) {
 			ctf_file_t *symtmpl;
 
 			symtmpl = ctf_fdcreate(cmp->cmh_ofd, &ret);

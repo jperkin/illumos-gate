@@ -3234,6 +3234,20 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 		    "failed to update output ctf container"));
 	}
 
+	/*
+	 * Attach symtab from the shared template for funcvar matching.
+	 * The data pointers are borrowed - the template owns the mmap
+	 * and outlives all per-CU containers.
+	 */
+	if (cup->cu_symtmpl != NULL) {
+		ctf_file_t *tmpl = cup->cu_symtmpl;
+		cup->cu_ctfp->ctf_symtab = tmpl->ctf_symtab;
+		cup->cu_ctfp->ctf_strtab = tmpl->ctf_strtab;
+		cup->cu_ctfp->ctf_symtab.cts_name = _CTF_NULLSTR;
+		cup->cu_ctfp->ctf_strtab.cts_name = _CTF_NULLSTR;
+		cup->cu_ctfp->ctf_nsyms = tmpl->ctf_nsyms;
+	}
+
 	if ((ret = ctf_dwarf_conv_funcvars(cup)) != 0) {
 		ctf_dprintf("ctf_dwarf_conv_funcvars (%s) returned %d\n",
 		    name, ret);
@@ -3511,7 +3525,10 @@ ctf_dwarf_init_die(ctf_cu_t *cup)
 {
 	int ret;
 
-	cup->cu_ctfp = ctf_fdcreate(cup->cu_fd, &ret);
+	if (cup->cu_symtmpl != NULL)
+		cup->cu_ctfp = ctf_create(&ret);
+	else
+		cup->cu_ctfp = ctf_fdcreate(cup->cu_fd, &ret);
 	if (cup->cu_ctfp == NULL)
 		return (ret);
 
