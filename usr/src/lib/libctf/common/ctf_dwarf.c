@@ -3246,6 +3246,7 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 		cup->cu_ctfp->ctf_symtab.cts_name = _CTF_NULLSTR;
 		cup->cu_ctfp->ctf_strtab.cts_name = _CTF_NULLSTR;
 		cup->cu_ctfp->ctf_nsyms = tmpl->ctf_nsyms;
+		cup->cu_ctfp->ctf_symvalid = tmpl->ctf_symvalid;
 	}
 
 	if ((ret = ctf_dwarf_conv_funcvars(cup)) != 0) {
@@ -3706,6 +3707,7 @@ ctf_dwarf_convert_batch(uint_t start, uint_t end, int fd, uint_t nthrs,
 	if (symtmpl == NULL)
 		return (err);
 
+	ctf_symvalid_create(symtmpl);
 	symhash = ctf_dwarf_symhash_build(symtmpl);
 
 	added = 0;
@@ -3806,6 +3808,10 @@ ctf_dwarf_convert_batch(uint_t start, uint_t end, int fd, uint_t nthrs,
 out:
 	ctf_close(fpprev);
 	ctf_dwarf_symhash_free(symhash);
+	if (symtmpl != NULL && symtmpl->ctf_symvalid != NULL) {
+		ctf_free(symtmpl->ctf_symvalid, symtmpl->ctf_nsyms);
+		symtmpl->ctf_symvalid = NULL;
+	}
 	ctf_close(symtmpl);
 	return (err);
 }

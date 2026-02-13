@@ -25,6 +25,7 @@
  */
 /*
  * Copyright (c) 2019, Joyent, Inc.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <sys/types.h>
@@ -797,6 +798,11 @@ ctf_symtab_iter(ctf_file_t *fp, ctf_symtab_f func, void *arg)
 		uint_t type;
 		Elf64_Sym sym;
 
+		if (fp->ctf_symvalid != NULL) {
+			if (fp->ctf_symvalid[i] == CTF_SV_SKIP)
+				continue;
+		}
+
 		/*
 		 * The CTF library has historically tried to handle large file
 		 * offsets itself so that way clients can be unaware of such
@@ -841,7 +847,8 @@ ctf_symtab_iter(ctf_file_t *fp, ctf_symtab_f func, void *arg)
 		/*
 		 * Check if this is a symbol that we care about.
 		 */
-		if (!ctf_sym_valid(strbase, type, sym.st_shndx, sym.st_value,
+		if (fp->ctf_symvalid == NULL &&
+		    !ctf_sym_valid(strbase, type, sym.st_shndx, sym.st_value,
 		    sym.st_name)) {
 			continue;
 		}
@@ -852,4 +859,62 @@ ctf_symtab_iter(ctf_file_t *fp, ctf_symtab_f func, void *arg)
 	}
 
 	return (0);
+}
+
+/*
+ * Precompute a per-symbol validity array for the given container's symtab.
+ * Each entry stores CTF_SV_SKIP (0) for symbols that should be skipped,
+ * CTF_SV_OBJECT/CTF_SV_FUNC for valid symbols, or CTF_SV_FILE for STT_FILE
+ * entries.  Callers can then replace per-symbol ctf_sym_valid() calls
+ * (2 strcmp each) with a single byte lookup.
+ */
+void
+ctf_symvalid_create(ctf_file_t *fp)
+{
+	ulong_t i;
+	uintptr_t symbase, strbase;
+	uint8_t *sv;
+
+	if (fp->ctf_symtab.cts_data == NULL ||
+	    fp->ctf_strtab.cts_data == NULL ||
+	    fp->ctf_nsyms == 0)
+		return;
+
+	sv = ctf_alloc(fp->ctf_nsyms);
+	if (sv == NULL)
+		return;
+
+	symbase = (uintptr_t)fp->ctf_symtab.cts_data;
+	strbase = (uintptr_t)fp->ctf_strtab.cts_data;
+
+	for (i = 0; i < fp->ctf_nsyms; i++) {
+		uint_t type;
+		Elf64_Sym sym;
+
+		if (fp->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
+			const Elf32_Sym *symp = (Elf32_Sym *)symbase + i;
+
+			sym.st_name = symp->st_name;
+			sym.st_value = symp->st_value;
+			sym.st_shndx = symp->st_shndx;
+			type = ELF32_ST_TYPE(symp->st_info);
+		} else {
+			const Elf64_Sym *symp = (Elf64_Sym *)symbase + i;
+
+			sym = *symp;
+			type = ELF64_ST_TYPE(symp->st_info);
+		}
+
+		if (type == STT_FILE) {
+			sv[i] = CTF_SV_FILE;
+		} else if (ctf_sym_valid(strbase, type, sym.st_shndx,
+		    sym.st_value, sym.st_name)) {
+			sv[i] = (type == STT_OBJECT) ?
+			    CTF_SV_OBJECT : CTF_SV_FUNC;
+		} else {
+			sv[i] = CTF_SV_SKIP;
+		}
+	}
+
+	fp->ctf_symvalid = sv;
 }

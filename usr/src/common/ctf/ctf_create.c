@@ -396,7 +396,11 @@ ctf_update(ctf_file_t *fp)
 	for (objsize = 0, funcsize = 0, i = 0; i < fp->ctf_nsyms; i++) {
 		int type;
 
-		if (fp->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
+		if (fp->ctf_symvalid != NULL) {
+			type = fp->ctf_symvalid[i];
+			if (type == CTF_SV_SKIP || type == CTF_SV_FILE)
+				continue;
+		} else if (fp->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
 			const Elf32_Sym *symp = (Elf32_Sym *)symbase + i;
 
 			type = ELF32_ST_TYPE(symp->st_info);
@@ -597,7 +601,12 @@ ctf_update(ctf_file_t *fp)
 	dsd = ctf_list_next(&fp->ctf_dsdefs);
 	for (i = 0; i < fp->ctf_nsyms; i++) {
 		int type;
-		if (fp->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
+
+		if (fp->ctf_symvalid != NULL) {
+			type = fp->ctf_symvalid[i];
+			if (type == CTF_SV_SKIP || type == CTF_SV_FILE)
+				continue;
+		} else if (fp->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
 			const Elf32_Sym *symp = (Elf32_Sym *)symbase + i;
 			type = ELF32_ST_TYPE(symp->st_info);
 
@@ -686,8 +695,10 @@ ctf_update(ctf_file_t *fp)
 	nfp->ctf_dtnextid = fp->ctf_dtnextid;
 	nfp->ctf_dtoldid = fp->ctf_dtnextid - 1;
 	nfp->ctf_specific = fp->ctf_specific;
+	nfp->ctf_symvalid = fp->ctf_symvalid;
 
 	fp->ctf_dthash = NULL;
+	fp->ctf_symvalid = NULL;
 	fp->ctf_dthashlen = 0;
 	bzero(&fp->ctf_dtdefs, sizeof (ctf_list_t));
 	bzero(&fp->ctf_dsdefs, sizeof (ctf_list_t));

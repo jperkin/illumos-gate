@@ -236,6 +236,7 @@ struct ctf_file {
 	size_t ctf_size;	/* size of CTF header + uncompressed data */
 	uint_t *ctf_sxlate;	/* translation table for symtab entries */
 	ulong_t ctf_nsyms;	/* number of entries in symtab xlate table */
+	uint8_t *ctf_symvalid;	/* precomputed symbol validity bitmap */
 	uint_t *ctf_txlate;	/* translation table for type IDs */
 	ushort_t *ctf_ptrtab;	/* translation table for pointer-to lookups */
 	ulong_t ctf_typemax;	/* maximum valid type ID number */
@@ -275,6 +276,15 @@ struct ctf_file {
  * and libctf should free it with ctf_data_free() on close.
  */
 #define	LCTF_FREE	0x0010
+
+/*
+ * Precomputed symbol validity values stored in ctf_symvalid[].
+ * Zero means the symbol should be skipped; non-zero encodes the type.
+ */
+#define	CTF_SV_SKIP	0
+#define	CTF_SV_OBJECT	1
+#define	CTF_SV_FUNC	2
+#define	CTF_SV_FILE	3
 
 #define	CTF_ELF_SCN_NAME	".SUNW_ctf"
 
