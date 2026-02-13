@@ -696,9 +696,11 @@ ctf_update(ctf_file_t *fp)
 	nfp->ctf_dtoldid = fp->ctf_dtnextid - 1;
 	nfp->ctf_specific = fp->ctf_specific;
 	nfp->ctf_symvalid = fp->ctf_symvalid;
+	nfp->ctf_symfile = fp->ctf_symfile;
 
 	fp->ctf_dthash = NULL;
 	fp->ctf_symvalid = NULL;
+	fp->ctf_symfile = NULL;
 	fp->ctf_dthashlen = 0;
 	bzero(&fp->ctf_dtdefs, sizeof (ctf_list_t));
 	bzero(&fp->ctf_dsdefs, sizeof (ctf_list_t));

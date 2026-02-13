@@ -237,6 +237,7 @@ struct ctf_file {
 	uint_t *ctf_sxlate;	/* translation table for symtab entries */
 	ulong_t ctf_nsyms;	/* number of entries in symtab xlate table */
 	uint8_t *ctf_symvalid;	/* precomputed symbol validity bitmap */
+	const char **ctf_symfile; /* precomputed per-symbol STT_FILE name */
 	uint_t *ctf_txlate;	/* translation table for type IDs */
 	ushort_t *ctf_ptrtab;	/* translation table for pointer-to lookups */
 	ulong_t ctf_typemax;	/* maximum valid type ID number */

@@ -874,6 +874,8 @@ ctf_symvalid_create(ctf_file_t *fp)
 	ulong_t i;
 	uintptr_t symbase, strbase;
 	uint8_t *sv;
+	const char **sf;
+	const char *file = NULL;
 
 	if (fp->ctf_symtab.cts_data == NULL ||
 	    fp->ctf_strtab.cts_data == NULL ||
@@ -884,12 +886,19 @@ ctf_symvalid_create(ctf_file_t *fp)
 	if (sv == NULL)
 		return;
 
+	sf = ctf_alloc(fp->ctf_nsyms * sizeof (const char *));
+	if (sf == NULL) {
+		ctf_free(sv, fp->ctf_nsyms);
+		return;
+	}
+
 	symbase = (uintptr_t)fp->ctf_symtab.cts_data;
 	strbase = (uintptr_t)fp->ctf_strtab.cts_data;
 
 	for (i = 0; i < fp->ctf_nsyms; i++) {
 		uint_t type;
 		Elf64_Sym sym;
+		const char *name;
 
 		if (fp->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
 			const Elf32_Sym *symp = (Elf32_Sym *)symbase + i;
@@ -905,7 +914,10 @@ ctf_symvalid_create(ctf_file_t *fp)
 			type = ELF64_ST_TYPE(symp->st_info);
 		}
 
+		name = (const char *)(strbase + sym.st_name);
+
 		if (type == STT_FILE) {
+			file = name;
 			sv[i] = CTF_SV_FILE;
 		} else if (ctf_sym_valid(strbase, type, sym.st_shndx,
 		    sym.st_value, sym.st_name)) {
@@ -914,7 +926,9 @@ ctf_symvalid_create(ctf_file_t *fp)
 		} else {
 			sv[i] = CTF_SV_SKIP;
 		}
+		sf[i] = file;
 	}
 
 	fp->ctf_symvalid = sv;
+	fp->ctf_symfile = sf;
 }

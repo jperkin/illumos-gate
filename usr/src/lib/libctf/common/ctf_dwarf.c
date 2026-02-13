@@ -3247,6 +3247,7 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 		cup->cu_ctfp->ctf_strtab.cts_name = _CTF_NULLSTR;
 		cup->cu_ctfp->ctf_nsyms = tmpl->ctf_nsyms;
 		cup->cu_ctfp->ctf_symvalid = tmpl->ctf_symvalid;
+		cup->cu_ctfp->ctf_symfile = tmpl->ctf_symfile;
 	}
 
 	if ((ret = ctf_dwarf_conv_funcvars(cup)) != 0) {
@@ -3256,7 +3257,9 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 		    "failed to convert strong functions and variables"));
 	}
 
-	if (ctf_update(cup->cu_ctfp) != 0) {
+	if ((cup->cu_symtmpl != NULL ?
+	    ctf_update_nosyms(cup->cu_ctfp) :
+	    ctf_update(cup->cu_ctfp)) != 0) {
 		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
 		    "failed to update output ctf container"));
 	}
@@ -3811,6 +3814,11 @@ out:
 	if (symtmpl != NULL && symtmpl->ctf_symvalid != NULL) {
 		ctf_free(symtmpl->ctf_symvalid, symtmpl->ctf_nsyms);
 		symtmpl->ctf_symvalid = NULL;
+	}
+	if (symtmpl != NULL && symtmpl->ctf_symfile != NULL) {
+		ctf_free((void *)symtmpl->ctf_symfile,
+		    symtmpl->ctf_nsyms * sizeof (const char *));
+		symtmpl->ctf_symfile = NULL;
 	}
 	ctf_close(symtmpl);
 	return (err);

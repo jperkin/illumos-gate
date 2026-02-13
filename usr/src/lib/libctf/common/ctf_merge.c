@@ -1187,6 +1187,95 @@ ctf_merge_add_symbol(const Elf64_Sym *symp, ulong_t idx, const char *file,
 }
 
 /*
+ * Build omap/fmap entries directly from the input container's dsd list,
+ * bypassing the symtab walk and ctf_sxlate lookup.  Requires ctf_symvalid
+ * and ctf_symfile to have been precomputed.
+ */
+static int
+ctf_merge_add_dsd(ctf_merge_input_t *cmi, ctf_file_t *input)
+{
+	ctf_dsdef_t *dsd;
+	uintptr_t symbase = (uintptr_t)input->ctf_symtab.cts_data;
+	uintptr_t strbase = (uintptr_t)input->ctf_strtab.cts_data;
+
+	for (dsd = ctf_list_next(&input->ctf_dsdefs); dsd != NULL;
+	    dsd = ctf_list_next(dsd)) {
+		ulong_t idx = dsd->dsd_symidx;
+		const char *name, *file;
+		uint_t svtype;
+		Elf64_Sym sym;
+		int ret;
+
+		if (idx >= input->ctf_nsyms)
+			continue;
+
+		svtype = input->ctf_symvalid[idx];
+		if (svtype == CTF_SV_SKIP || svtype == CTF_SV_FILE)
+			continue;
+
+		if (input->ctf_symtab.cts_entsize == sizeof (Elf32_Sym)) {
+			const Elf32_Sym *symp = (Elf32_Sym *)symbase + idx;
+			uint_t bind, itype;
+
+			sym.st_name = symp->st_name;
+			sym.st_value = symp->st_value;
+			sym.st_size = symp->st_size;
+			bind = ELF32_ST_BIND(symp->st_info);
+			itype = ELF32_ST_TYPE(symp->st_info);
+			sym.st_info = ELF64_ST_INFO(bind, itype);
+			sym.st_other = symp->st_other;
+			sym.st_shndx = symp->st_shndx;
+		} else {
+			sym = *((Elf64_Sym *)symbase + idx);
+		}
+
+		name = (const char *)(strbase + sym.st_name);
+		file = input->ctf_symfile[idx];
+
+		if (svtype == CTF_SV_OBJECT) {
+			ret = ctf_merge_add_object(cmi, dsd->dsd_tid,
+			    idx, file, name, &sym);
+			if (ret != 0)
+				return (ret);
+		} else {
+			ctf_merge_funcmap_t *fmap;
+			uint_t argc = dsd->dsd_nargs;
+			uint_t flags = 0;
+			uint_t i;
+
+			if (argc != 0 && dsd->dsd_argc[argc - 1] == 0) {
+				flags |= CTF_FUNC_VARARG;
+				argc--;
+			}
+
+			fmap = ctf_alloc(sizeof (ctf_merge_funcmap_t) +
+			    sizeof (ctf_id_t) * argc);
+			if (fmap == NULL)
+				return (ENOMEM);
+
+			fmap->cmf_idx = idx;
+			fmap->cmf_sym = sym;
+			fmap->cmf_rtid = dsd->dsd_tid;
+			fmap->cmf_flags = flags;
+			fmap->cmf_argc = argc;
+			fmap->cmf_name = name;
+			if (ELF64_ST_BIND(sym.st_info) == STB_LOCAL) {
+				fmap->cmf_file = file;
+			} else {
+				fmap->cmf_file = NULL;
+			}
+
+			for (i = 0; i < argc; i++)
+				fmap->cmf_args[i] = dsd->dsd_argc[i];
+
+			list_insert_tail(&cmi->cmi_fmap, fmap);
+		}
+	}
+
+	return (0);
+}
+
+/*
  * Whenever we create an entry to merge, we then go and add a second empty
  * ctf_file_t which we use for the purposes of our merging. It's not the best,
  * but it's the best that we've got at the moment.
@@ -1215,8 +1304,13 @@ ctf_merge_add(ctf_merge_t *cmh, ctf_file_t *input)
 	    offsetof(ctf_merge_objmap_t, cmo_node));
 
 	if (cmh->cmh_msyms == B_TRUE) {
-		if ((ret = ctf_symtab_iter(input, ctf_merge_add_symbol,
-		    cmi)) != 0) {
+		if (input->ctf_symvalid != NULL &&
+		    input->ctf_symfile != NULL)
+			ret = ctf_merge_add_dsd(cmi, input);
+		else
+			ret = ctf_symtab_iter(input, ctf_merge_add_symbol,
+			    cmi);
+		if (ret != 0) {
 			ctf_merge_fini_input(cmi);
 			return (ret);
 		}
@@ -1748,11 +1842,8 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 	ctf_merge_fixup_symmaps(&cm, cmi);
 
 	if (cmp->cmh_msyms == B_TRUE) {
-		ctf_strhash_t obj_hash = { 0 }, func_hash = { 0 };
-		ctf_merge_symbol_arg_t arg;
 		ctf_merge_objmap_t *cmo;
 		ctf_merge_funcmap_t *cmf;
-		size_t nobj = 0, nfunc = 0;
 
 		/*
 		 * The dedup output was created with ctf_create() and has
@@ -1797,47 +1888,117 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 			ctf_close(symtmpl);
 		}
 
-		for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
-		    cmo = list_next(&cmi->cmi_omap, cmo))
-			nobj++;
-		for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
-		    cmf = list_next(&cmi->cmi_fmap, cmf))
-			nfunc++;
+		if (cm.cm_out->ctf_symvalid != NULL) {
+			/*
+			 * Batch mode: the omap/fmap were built from the
+			 * same symtab now attached to cm_out, so we can
+			 * insert dsds directly by index, bypassing the
+			 * full symtab walk and name-based matching.
+			 */
+			for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
+			    cmo = list_next(&cmi->cmi_omap, cmo)) {
+				ctf_dsdef_t *dsd;
 
-		if (ctf_strhash_create(&obj_hash, nobj) != 0 ||
-		    ctf_strhash_create(&func_hash, nfunc) != 0) {
+				dsd = ctf_alloc(sizeof (ctf_dsdef_t));
+				if (dsd == NULL) {
+					ret = ENOMEM;
+					goto err;
+				}
+				dsd->dsd_symidx = cmo->cmo_idx;
+				dsd->dsd_tid = cmo->cmo_tid;
+				dsd->dsd_nargs = 0;
+				dsd->dsd_argc = NULL;
+				ctf_list_append(&cm.cm_out->ctf_dsdefs, dsd);
+			}
+
+			for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
+			    cmf = list_next(&cmi->cmi_fmap, cmf)) {
+				ctf_dsdef_t *dsd;
+
+				dsd = ctf_alloc(sizeof (ctf_dsdef_t));
+				if (dsd == NULL) {
+					ret = ENOMEM;
+					goto err;
+				}
+				dsd->dsd_symidx = cmf->cmf_idx;
+				dsd->dsd_tid = cmf->cmf_rtid;
+				dsd->dsd_nargs = cmf->cmf_argc;
+				if (cmf->cmf_flags & CTF_FUNC_VARARG)
+					dsd->dsd_nargs++;
+				if (dsd->dsd_nargs != 0) {
+					dsd->dsd_argc = ctf_alloc(
+					    sizeof (ctf_id_t) *
+					    dsd->dsd_nargs);
+					if (dsd->dsd_argc == NULL) {
+						ctf_free(dsd,
+						    sizeof (ctf_dsdef_t));
+						ret = ENOMEM;
+						goto err;
+					}
+					bcopy(cmf->cmf_args, dsd->dsd_argc,
+					    sizeof (ctf_id_t) *
+					    cmf->cmf_argc);
+					if (cmf->cmf_flags & CTF_FUNC_VARARG)
+						dsd->dsd_argc[cmf->cmf_argc] =
+						    0;
+				} else {
+					dsd->dsd_argc = NULL;
+				}
+				ctf_list_append(&cm.cm_out->ctf_dsdefs, dsd);
+			}
+
+			cm.cm_out->ctf_flags |= LCTF_DIRTY;
+		} else {
+			ctf_merge_symbol_arg_t arg;
+			ctf_strhash_t obj_hash, func_hash;
+			size_t nobj = 0, nfunc = 0;
+
+			for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
+			    cmo = list_next(&cmi->cmi_omap, cmo))
+				nobj++;
+			for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
+			    cmf = list_next(&cmi->cmi_fmap, cmf))
+				nfunc++;
+
+			if (ctf_strhash_create(&obj_hash, nobj) != 0 ||
+			    ctf_strhash_create(&func_hash, nfunc) != 0) {
+				ctf_strhash_destroy(&obj_hash);
+				ctf_strhash_destroy(&func_hash);
+				ret = ENOMEM;
+				goto err;
+			}
+
+			for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
+			    cmo = list_next(&cmi->cmi_omap, cmo))
+				(void) ctf_strhash_insert(&obj_hash,
+				    cmo->cmo_name, cmo);
+			for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
+			    cmf = list_next(&cmi->cmi_fmap, cmf))
+				(void) ctf_strhash_insert(&func_hash,
+				    cmf->cmf_name, cmf);
+
+			arg.cmsa_objmap = &cmi->cmi_omap;
+			arg.cmsa_funcmap = &cmi->cmi_fmap;
+			arg.cmsa_obj_hash = &obj_hash;
+			arg.cmsa_func_hash = &func_hash;
+			arg.cmsa_out = cm.cm_out;
+			arg.cmsa_dedup = B_TRUE;
+			ret = ctf_symtab_iter(cm.cm_out,
+			    ctf_merge_symbols, &arg);
 			ctf_strhash_destroy(&obj_hash);
 			ctf_strhash_destroy(&func_hash);
-			ret = ENOMEM;
-			goto err;
-		}
-
-		for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
-		    cmo = list_next(&cmi->cmi_omap, cmo))
-			(void) ctf_strhash_insert(&obj_hash,
-			    cmo->cmo_name, cmo);
-		for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
-		    cmf = list_next(&cmi->cmi_fmap, cmf))
-			(void) ctf_strhash_insert(&func_hash,
-			    cmf->cmf_name, cmf);
-
-		arg.cmsa_objmap = &cmi->cmi_omap;
-		arg.cmsa_funcmap = &cmi->cmi_fmap;
-		arg.cmsa_obj_hash = &obj_hash;
-		arg.cmsa_func_hash = &func_hash;
-		arg.cmsa_out = cm.cm_out;
-		arg.cmsa_dedup = B_TRUE;
-		ret = ctf_symtab_iter(cm.cm_out, ctf_merge_symbols, &arg);
-		ctf_strhash_destroy(&obj_hash);
-		ctf_strhash_destroy(&func_hash);
-		if (ret != 0) {
-			ctf_dprintf("failed to dedup symbols: %s\n",
-			    ctf_errmsg(ret));
-			goto err;
+			if (ret != 0) {
+				ctf_dprintf("failed to dedup symbols: %s\n",
+				    ctf_errmsg(ret));
+				goto err;
+			}
 		}
 	}
 
-	ret = ctf_update(cm.cm_out);
+	if (cm.cm_out->ctf_symvalid != NULL)
+		ret = ctf_update_nosyms(cm.cm_out);
+	else
+		ret = ctf_update(cm.cm_out);
 	if (ret == 0) {
 		cmc->cmi_input = NULL;
 		*outp = cm.cm_out;
