@@ -25,6 +25,7 @@
  */
 /*
  * Copyright (c) 2015, Joyent, Inc.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <ctf_impl.h>
@@ -195,7 +196,8 @@ ctf_sym_valid(uintptr_t strbase, int type, uint16_t shndx, uint64_t val,
 	if (type == STT_OBJECT && shndx == SHN_ABS && val == 0)
 		return (B_FALSE);
 	name = (char *)(strbase + noff);
-	if (strcmp(name, "_START_") == 0 || strcmp(name, "_END_") == 0)
+	if (name[0] == '_' &&
+	    (strcmp(name, "_START_") == 0 || strcmp(name, "_END_") == 0))
 		return (B_FALSE);
 
 	return (B_TRUE);

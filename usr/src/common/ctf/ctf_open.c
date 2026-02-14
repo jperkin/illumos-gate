@@ -27,6 +27,7 @@
 /*
  * Copyright (c) 2015, Joyent, Inc.  All rights reserved.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <ctf_impl.h>
@@ -142,8 +143,9 @@ init_symtab(ctf_file_t *fp, const ctf_header_t *hp,
 			name = _CTF_NULLSTR;
 
 		if (gsp->st_name == 0 || gsp->st_shndx == SHN_UNDEF ||
-		    strcmp(name, "_START_") == 0 ||
-		    strcmp(name, "_END_") == 0) {
+		    (name[0] == '_' &&
+		    (strcmp(name, "_START_") == 0 ||
+		    strcmp(name, "_END_") == 0))) {
 			*xp = -1u;
 			continue;
 		}

@@ -360,7 +360,7 @@ ctf_diff_struct(ctf_diff_t *cds, ctf_file_t *ifp, const ctf_type_t *itp,
 		if (ioff != ooff) {
 			return (B_TRUE);
 		}
-		if (strcmp(iname, oname) != 0) {
+		if (iname != oname && strcmp(iname, oname) != 0) {
 			return (B_TRUE);
 		}
 		ret = ctf_diff_type(cds, ifp, itype, ofp, otype);
@@ -526,8 +526,10 @@ ctf_diff_enum(ctf_file_t *ifp, const ctf_type_t *itp,
 
 	for (n = LCTF_INFO_VLEN(ifp, itp->ctt_info); n != 0;
 	    n--, iep++, oep++) {
-		if (strcmp(ctf_strptr(ifp, iep->cte_name),
-		    ctf_strptr(ofp, oep->cte_name)) != 0)
+		const char *ie = ctf_strptr(ifp, iep->cte_name);
+		const char *oe = ctf_strptr(ofp, oep->cte_name);
+
+		if (ie != oe && strcmp(ie, oe) != 0)
 			return (B_TRUE);
 
 		if (iep->cte_value != oep->cte_value)
@@ -588,13 +590,14 @@ ctf_diff_type(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
 	iname = ctf_strptr(ifp, itp->ctt_name);
 	oname = ctf_strptr(ofp, otp->ctt_name);
 
-	if (iname == NULL || oname == NULL) {
-		if (iname != oname)
+	if (iname != oname) {
+		if (iname == NULL || oname == NULL)
 			return (B_TRUE);
-	} else if (strcmp(iname, oname) != 0) {
-		if (ikind != okind || ikind != CTF_K_INTEGER ||
-		    (cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) == 0)
-			return (B_TRUE);
+		if (strcmp(iname, oname) != 0) {
+			if (ikind != okind || ikind != CTF_K_INTEGER ||
+			    (cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) == 0)
+				return (B_TRUE);
+		}
 	}
 
 	/* Handle forward declarations inline */
@@ -717,8 +720,6 @@ ctf_diff_check_chain(ctf_diff_t *cds, ctf_strhash_t *hp,
 	    elem = ctf_strhash_next(hp, elem)) {
 		ctf_id_t j = (ctf_id_t)(uintptr_t)elem->h_value;
 
-		if (strcmp(name, elem->h_name) != 0)
-			continue;
 		if (kindcache[j - jstart] != kind)
 			continue;
 		if (ivlen != (uint_t)-1 && vlencache[j - jstart] != ivlen)
@@ -729,6 +730,8 @@ ctf_diff_check_chain(ctf_diff_t *cds, ctf_strhash_t *hp,
 		}
 		if (!(cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) &&
 		    cds->cds_reverse[TINDEX(j)] != 0)
+			continue;
+		if (strcmp(name, elem->h_name) != 0)
 			continue;
 
 		ret = ctf_diff_try_candidate(cds, i, j, matchid);
