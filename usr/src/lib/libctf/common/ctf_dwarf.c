@@ -1479,9 +1479,11 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base)
 	Dwarf_Unsigned size;
 	ctf_dwarf_membcache_t *cache = NULL;
 	int ncached = 0, maxcache = 0;
+	ctf_dtdef_t *dtd;
 
-	kind = ctf_type_kind(cup->cu_ctfp, base);
-	VERIFY(kind != CTF_ERR);
+	dtd = ctf_dtd_lookup(cup->cu_ctfp, base);
+	VERIFY(dtd != NULL);
+	kind = CTF_INFO_KIND(dtd->dtd_data.ctt_info);
 	VERIFY(kind == CTF_K_STRUCT || kind == CTF_K_UNION);
 
 	/*
@@ -1590,7 +1592,7 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base)
 
 	/* Apply cached members outside the DWARF lock */
 	for (i = 0; i < ncached; i++) {
-		ret = ctf_add_member(cup->cu_ctfp, base,
+		ret = ctf_add_member_direct(cup->cu_ctfp, dtd,
 		    cache[i].cdmc_name, cache[i].cdmc_type,
 		    cache[i].cdmc_off);
 		if (ret == CTF_ERR) {
@@ -1605,16 +1607,11 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base)
 
 	ctf_dwarf_membcache_fini(cache, ncached, maxcache);
 
-	/* Finally set the size of the structure to the actual byte size */
+	/* Set the size directly from DWARF, avoiding a redundant dtd lookup */
 	if ((ret = ctf_dwarf_unsigned(cup, die, DW_AT_byte_size, &size)) != 0)
 		return (ret);
-	if ((ctf_set_size(cup->cu_ctfp, base, size)) == CTF_ERR) {
-		int e = ctf_errno(cup->cu_ctfp);
-		(void) snprintf(cup->cu_errbuf, cup->cu_errlen,
-		    "failed to set type size for %d to 0x%x: %s\n", base,
-		    (uint32_t)size, ctf_errmsg(e));
-		return (ECTF_CONVBKERR);
-	}
+	ctf_set_ctt_size(&dtd->dtd_data, size);
+	cup->cu_ctfp->ctf_flags |= LCTF_DIRTY;
 
 	return (0);
 

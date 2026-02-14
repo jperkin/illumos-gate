@@ -1509,6 +1509,51 @@ ctf_add_enumerator(ctf_file_t *fp, ctf_id_t enid, const char *name, int value)
 	return (0);
 }
 
+/*
+ * Fast-path member addition for DWARF conversion.  The caller provides the
+ * dtdef directly (avoiding a hash lookup per member), and commits to setting
+ * the struct/union size via ctf_set_size() after all members are added.
+ * This skips per-member size computation, duplicate detection, and reference
+ * counting - all unnecessary when building types from trusted DWARF data.
+ */
+int
+ctf_add_member_direct(ctf_file_t *fp, ctf_dtdef_t *dtd, const char *name,
+    ctf_id_t type, ulong_t offset)
+{
+	ctf_dmdef_t *dmd;
+	uint_t kind, vlen, root;
+	char *s = NULL;
+
+	kind = CTF_INFO_KIND(dtd->dtd_data.ctt_info);
+	root = CTF_INFO_ISROOT(dtd->dtd_data.ctt_info);
+	vlen = CTF_INFO_VLEN(dtd->dtd_data.ctt_info);
+
+	if (vlen == CTF_MAX_VLEN)
+		return (ctf_set_errno(fp, ECTF_DTFULL));
+
+	if ((dmd = ctf_alloc(sizeof (ctf_dmdef_t))) == NULL)
+		return (ctf_set_errno(fp, EAGAIN));
+
+	if (name != NULL && *name != '\0' && (s = ctf_strdup(name)) == NULL) {
+		ctf_free(dmd, sizeof (ctf_dmdef_t));
+		return (ctf_set_errno(fp, EAGAIN));
+	}
+
+	dmd->dmd_name = s;
+	dmd->dmd_type = type;
+	dmd->dmd_value = -1;
+	dmd->dmd_offset = offset;
+
+	dtd->dtd_data.ctt_info = CTF_TYPE_INFO(kind, root, vlen + 1);
+	ctf_list_append(&dtd->dtd_u.dtu_members, dmd);
+
+	if (s != NULL)
+		fp->ctf_dtstrlen += strlen(s) + 1;
+
+	fp->ctf_flags |= LCTF_DIRTY;
+	return (0);
+}
+
 int
 ctf_add_member(ctf_file_t *fp, ctf_id_t souid, const char *name, ctf_id_t type,
     ulong_t offset)

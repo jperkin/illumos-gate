@@ -450,6 +450,7 @@ ctf_merge_add_forward(ctf_merge_types_t *cmp, ctf_id_t id, uint_t kind)
 typedef struct ctf_merge_su {
 	ctf_merge_types_t *cms_cm;
 	ctf_id_t cms_id;
+	ctf_dtdef_t *cms_dtd;
 } ctf_merge_su_t;
 
 static int
@@ -461,7 +462,7 @@ ctf_merge_add_member(const char *name, ctf_id_t type, ulong_t offset, void *arg)
 	type = cms->cms_cm->cm_tmap[type].cmt_map;
 
 	ctf_dprintf("Trying to add member %s to %d\n", name, cms->cms_id);
-	return (ctf_add_member(cms->cms_cm->cm_out, cms->cms_id, name,
+	return (ctf_add_member_direct(cms->cms_cm->cm_out, cms->cms_dtd, name,
 	    type, offset) == CTF_ERR);
 }
 
@@ -615,13 +616,14 @@ ctf_merge_fixup_sou(ctf_merge_types_t *cmp, ctf_id_t id)
 	ctf_dprintf("Trying to fix up sou %d\n", id);
 	cms.cms_cm = cmp;
 	cms.cms_id = mapid;
+	cms.cms_dtd = dtd;
 	if (ctf_member_iter(cmp->cm_src, id, ctf_merge_add_member, &cms) != 0)
 		return (CTF_ERR);
 
 	if ((size = ctf_type_size(cmp->cm_src, id)) == CTF_ERR)
 		return (CTF_ERR);
-	if (ctf_set_size(cmp->cm_out, mapid, size) == CTF_ERR)
-		return (CTF_ERR);
+	ctf_set_ctt_size(&dtd->dtd_data, size);
+	cmp->cm_out->ctf_flags |= LCTF_DIRTY;
 
 	return (0);
 }
