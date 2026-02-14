@@ -77,6 +77,7 @@ struct ctf_diff {
 	size_t cds_rsize;
 	ctf_diff_type_f cds_func;
 	ctf_diff_guess_t *cds_guess;
+	ctf_diff_guess_t *cds_guess_free;
 	void *cds_arg;
 	uint_t cds_nifuncs;
 	uint_t cds_nofuncs;
@@ -103,31 +104,6 @@ struct ctf_diff {
  */
 static int ctf_diff_type(ctf_diff_t *, ctf_file_t *, ctf_id_t, ctf_file_t *,
     ctf_id_t);
-
-static int
-ctf_diff_name(ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp, ctf_id_t oid)
-{
-	const char *iname, *oname;
-	const ctf_type_t *itp, *otp;
-
-	if ((itp = ctf_lookup_by_id(&ifp, iid)) == NULL)
-		return (CTF_ERR);
-
-	if ((otp = ctf_lookup_by_id(&ofp, oid)) == NULL)
-		return (ctf_set_errno(ifp, iid));
-
-	iname = ctf_strptr(ifp, itp->ctt_name);
-	oname = ctf_strptr(ofp, otp->ctt_name);
-
-	if ((iname == NULL || oname == NULL) && (iname != oname))
-		return (B_TRUE);
-
-	/* Two anonymous names are the same */
-	if (iname == NULL && oname == NULL)
-		return (B_FALSE);
-
-	return (strcmp(iname, oname) == 0 ? B_FALSE: B_TRUE);
-}
 
 /*
  * For floats and ints
@@ -162,43 +138,31 @@ static int
 ctf_diff_typedef(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid,
     ctf_file_t *ofp, ctf_id_t oid)
 {
+	ctf_file_t *fp;
+	const ctf_type_t *tp;
 	ctf_id_t iref = CTF_ERR, oref = CTF_ERR;
 
-	while (ctf_type_kind(ifp, iid) == CTF_K_TYPEDEF) {
-		iref = ctf_type_reference(ifp, iid);
-		if (iref == CTF_ERR)
-			return (CTF_ERR);
+	fp = ifp;
+	while ((tp = ctf_lookup_by_id(&fp, iid)) != NULL &&
+	    LCTF_INFO_KIND(fp, tp->ctt_info) == CTF_K_TYPEDEF) {
+		iref = tp->ctt_type;
 		iid = iref;
+		fp = ifp;
 	}
-
-	while (ctf_type_kind(ofp, oid) == CTF_K_TYPEDEF) {
-		oref = ctf_type_reference(ofp, oid);
-		if (oref == CTF_ERR)
-			return (CTF_ERR);
-		oid = oref;
-	}
-
-	VERIFY(iref != CTF_ERR && oref != CTF_ERR);
-	return (ctf_diff_type(cds, ifp, iref, ofp, oref));
-}
-
-/*
- * Two qualifiers are equivalent iff they point to two equivalent types.
- */
-static int
-ctf_diff_qualifier(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid,
-    ctf_file_t *ofp, ctf_id_t oid)
-{
-	ctf_id_t iref, oref;
-
-	iref = ctf_type_reference(ifp, iid);
-	if (iref == CTF_ERR)
+	if (tp == NULL)
 		return (CTF_ERR);
 
-	oref = ctf_type_reference(ofp, oid);
-	if (oref == CTF_ERR)
-		return (ctf_set_errno(ifp, ctf_errno(ofp)));
+	fp = ofp;
+	while ((tp = ctf_lookup_by_id(&fp, oid)) != NULL &&
+	    LCTF_INFO_KIND(fp, tp->ctt_info) == CTF_K_TYPEDEF) {
+		oref = tp->ctt_type;
+		oid = oref;
+		fp = ofp;
+	}
+	if (tp == NULL)
+		return (CTF_ERR);
 
+	VERIFY(iref != CTF_ERR && oref != CTF_ERR);
 	return (ctf_diff_type(cds, ifp, iref, ofp, oref));
 }
 
@@ -314,34 +278,24 @@ out:
  * same overall size.
  */
 static int
-ctf_diff_struct(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
-    ctf_id_t oid)
+ctf_diff_struct(ctf_diff_t *cds, ctf_file_t *ifp, const ctf_type_t *itp,
+    ctf_id_t iid, ctf_file_t *ofp, const ctf_type_t *otp, ctf_id_t oid)
 {
-	ctf_file_t *oifp;
-	const ctf_type_t *itp, *otp;
 	ssize_t isize, iincr, osize, oincr;
 	const ctf_member_t *imp, *omp;
 	const ctf_lmember_t *ilmp, *olmp;
 	int n;
 	ctf_diff_guess_t *cdg;
 
-	oifp = ifp;
+	(void) ctf_get_ctt_size(ifp, itp, &isize, &iincr);
+	(void) ctf_get_ctt_size(ofp, otp, &osize, &oincr);
 
-	if ((itp = ctf_lookup_by_id(&ifp, iid)) == NULL)
-		return (CTF_ERR);
-
-	if ((otp = ctf_lookup_by_id(&ofp, oid)) == NULL)
-		return (ctf_set_errno(oifp, ctf_errno(ofp)));
-
-	if (ctf_type_size(ifp, iid) != ctf_type_size(ofp, oid))
+	if (isize != osize)
 		return (B_TRUE);
 
 	if (LCTF_INFO_VLEN(ifp, itp->ctt_info) !=
 	    LCTF_INFO_VLEN(ofp, otp->ctt_info))
 		return (B_TRUE);
-
-	(void) ctf_get_ctt_size(ifp, itp, &isize, &iincr);
-	(void) ctf_get_ctt_size(ofp, otp, &osize, &oincr);
 
 	if (ifp->ctf_version == CTF_VERSION_1 || isize < CTF_LSTRUCT_THRESH) {
 		imp = (const ctf_member_t *)((uintptr_t)itp + iincr);
@@ -362,9 +316,14 @@ ctf_diff_struct(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
 	/*
 	 * Insert our assumption that they're equal for the moment.
 	 */
-	cdg = ctf_alloc(sizeof (ctf_diff_guess_t));
-	if (cdg == NULL)
-		return (ctf_set_errno(ifp, ENOMEM));
+	if (cds->cds_guess_free != NULL) {
+		cdg = cds->cds_guess_free;
+		cds->cds_guess_free = cdg->cdg_next;
+	} else {
+		cdg = ctf_alloc(sizeof (ctf_diff_guess_t));
+		if (cdg == NULL)
+			return (ctf_set_errno(ifp, ENOMEM));
+	}
 	cdg->cdg_iid = iid;
 	cdg->cdg_oid = oid;
 	cdg->cdg_next = cds->cds_guess;
@@ -506,28 +465,25 @@ ctf_diff_union_check_fp(const char *name, ctf_id_t id, ulong_t off, void *arg)
 }
 
 static int
-ctf_diff_union(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
-    ctf_id_t oid)
+ctf_diff_union(ctf_diff_t *cds, ctf_file_t *ifp, const ctf_type_t *itp,
+    ctf_id_t iid, ctf_file_t *ofp, const ctf_type_t *otp, ctf_id_t oid)
 {
-	ctf_file_t *oifp;
-	const ctf_type_t *itp, *otp;
 	ctf_diff_union_fp_t cduf;
 	ctf_diff_guess_t *cdg;
 	int ret;
-
-	oifp = ifp;
-	if ((itp = ctf_lookup_by_id(&ifp, iid)) == NULL)
-		return (CTF_ERR);
-	if ((otp = ctf_lookup_by_id(&ofp, oid)) == NULL)
-		return (ctf_set_errno(oifp, ctf_errno(ofp)));
 
 	if (LCTF_INFO_VLEN(ifp, itp->ctt_info) !=
 	    LCTF_INFO_VLEN(ofp, otp->ctt_info))
 		return (B_TRUE);
 
-	cdg = ctf_alloc(sizeof (ctf_diff_guess_t));
-	if (cdg == NULL)
-		return (ctf_set_errno(ifp, ENOMEM));
+	if (cds->cds_guess_free != NULL) {
+		cdg = cds->cds_guess_free;
+		cds->cds_guess_free = cdg->cdg_next;
+	} else {
+		cdg = ctf_alloc(sizeof (ctf_diff_guess_t));
+		if (cdg == NULL)
+			return (ctf_set_errno(ifp, ENOMEM));
+	}
 	cdg->cdg_iid = iid;
 	cdg->cdg_oid = oid;
 	cdg->cdg_next = cds->cds_guess;
@@ -552,19 +508,12 @@ ctf_diff_union(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
  * the same set of members.
  */
 static int
-ctf_diff_enum(ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp, ctf_id_t oid)
+ctf_diff_enum(ctf_file_t *ifp, const ctf_type_t *itp,
+    ctf_file_t *ofp, const ctf_type_t *otp)
 {
-	ctf_file_t *oifp;
-	const ctf_type_t *itp, *otp;
 	ssize_t iincr, oincr;
 	const ctf_enum_t *iep, *oep;
 	int n;
-
-	oifp = ifp;
-	if ((itp = ctf_lookup_by_id(&ifp, iid)) == NULL)
-		return (CTF_ERR);
-	if ((otp = ctf_lookup_by_id(&ofp, oid)) == NULL)
-		return (ctf_set_errno(oifp, ctf_errno(ofp)));
 
 	if (LCTF_INFO_VLEN(ifp, itp->ctt_info) !=
 	    LCTF_INFO_VLEN(ofp, otp->ctt_info))
@@ -589,29 +538,6 @@ ctf_diff_enum(ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp, ctf_id_t oid)
 }
 
 /*
- * Two forwards are equivalent in one of two cases. If both are forwards, than
- * they are the same. Otherwise, they're equivalent if one is a struct or union
- * and the other is a forward.
- */
-static int
-ctf_diff_forward(ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp, ctf_id_t oid)
-{
-	int ikind, okind;
-
-	ikind = ctf_type_kind(ifp, iid);
-	okind = ctf_type_kind(ofp, oid);
-
-	if (ikind == okind) {
-		ASSERT(ikind == CTF_K_FORWARD);
-		return (B_FALSE);
-	} else if (ikind == CTF_K_FORWARD) {
-		return (okind != CTF_K_UNION && okind != CTF_K_STRUCT);
-	} else {
-		return (ikind != CTF_K_UNION && ikind != CTF_K_STRUCT);
-	}
-}
-
-/*
  * Are two types equivalent?
  */
 int
@@ -619,6 +545,9 @@ ctf_diff_type(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
     ctf_id_t oid)
 {
 	int ret, ikind, okind;
+	ctf_file_t *oifp = ifp, *oofp = ofp;
+	const ctf_type_t *itp, *otp;
+	const char *iname, *oname;
 
 	/* Do a quick short circuit */
 	if (ifp == ofp && iid == oid)
@@ -639,61 +568,81 @@ ctf_diff_type(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
 	    cds->cds_reverse[TINDEX(oid)] != 0)
 		return (B_TRUE);
 
-	ikind = ctf_type_kind(ifp, iid);
-	okind = ctf_type_kind(ofp, oid);
+	/*
+	 * Look up both types once and extract kind and name inline,
+	 * avoiding separate ctf_type_kind and ctf_diff_name calls.
+	 */
+	if ((itp = ctf_lookup_by_id(&ifp, iid)) == NULL)
+		return (CTF_ERR);
+	if ((otp = ctf_lookup_by_id(&ofp, oid)) == NULL)
+		return (ctf_set_errno(oifp, ctf_errno(ofp)));
+
+	ikind = LCTF_INFO_KIND(ifp, itp->ctt_info);
+	okind = LCTF_INFO_KIND(ofp, otp->ctt_info);
 
 	if (ikind != okind &&
 	    ikind != CTF_K_FORWARD && okind != CTF_K_FORWARD)
-			return (B_TRUE);
+		return (B_TRUE);
 
-	/* Check names */
-	if ((ret = ctf_diff_name(ifp, iid, ofp, oid)) != B_FALSE) {
+	/* Check names inline */
+	iname = ctf_strptr(ifp, itp->ctt_name);
+	oname = ctf_strptr(ofp, otp->ctt_name);
+
+	if (iname == NULL || oname == NULL) {
+		if (iname != oname)
+			return (B_TRUE);
+	} else if (strcmp(iname, oname) != 0) {
 		if (ikind != okind || ikind != CTF_K_INTEGER ||
 		    (cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) == 0)
-			return (ret);
+			return (B_TRUE);
 	}
 
-	if (ikind == CTF_K_FORWARD || okind == CTF_K_FORWARD)
-		return (ctf_diff_forward(ifp, iid, ofp, oid));
+	/* Handle forward declarations inline */
+	if (ikind == CTF_K_FORWARD || okind == CTF_K_FORWARD) {
+		if (ikind == okind)
+			return (B_FALSE);
+		if (ikind == CTF_K_FORWARD)
+			return (okind != CTF_K_UNION && okind != CTF_K_STRUCT);
+		return (ikind != CTF_K_UNION && ikind != CTF_K_STRUCT);
+	}
 
 	switch (ikind) {
 	case CTF_K_INTEGER:
 	case CTF_K_FLOAT:
-		ret = ctf_diff_number(ifp, iid, ofp, oid);
+		ret = ctf_diff_number(oifp, iid, oofp, oid);
 		break;
 	case CTF_K_ARRAY:
-		ret = ctf_diff_array(cds, ifp, iid, ofp, oid);
+		ret = ctf_diff_array(cds, oifp, iid, oofp, oid);
 		break;
 	case CTF_K_FUNCTION:
-		ret = ctf_diff_fptr(cds, ifp, iid, ofp, oid);
+		ret = ctf_diff_fptr(cds, oifp, iid, oofp, oid);
 		break;
 	case CTF_K_STRUCT:
-		ret = ctf_diff_struct(cds, ifp, iid, ofp, oid);
+		ret = ctf_diff_struct(cds, ifp, itp, iid, ofp, otp, oid);
 		break;
 	case CTF_K_UNION:
-		ret = ctf_diff_union(cds, ifp, iid, ofp, oid);
+		ret = ctf_diff_union(cds, ifp, itp, iid, ofp, otp, oid);
 		break;
 	case CTF_K_ENUM:
-		ret = ctf_diff_enum(ifp, iid, ofp, oid);
-		break;
-	case CTF_K_FORWARD:
-		ret = ctf_diff_forward(ifp, iid, ofp, oid);
+		ret = ctf_diff_enum(ifp, itp, ofp, otp);
 		break;
 	case CTF_K_TYPEDEF:
-		ret = ctf_diff_typedef(cds, ifp, iid, ofp, oid);
+		ret = ctf_diff_typedef(cds, oifp, iid, oofp, oid);
 		break;
 	case CTF_K_POINTER:
 	case CTF_K_VOLATILE:
 	case CTF_K_CONST:
 	case CTF_K_RESTRICT:
-		ret = ctf_diff_qualifier(cds, ifp, iid, ofp, oid);
+		/*
+		 * Qualifiers just compare the referenced type; extract
+		 * ctt_type directly from the already-loaded type pointers.
+		 * Pass the original containers (before ctf_lookup_by_id
+		 * resolution) to match ctf_diff_qualifier behavior.
+		 */
+		ret = ctf_diff_type(cds, oifp, itp->ctt_type,
+		    oofp, otp->ctt_type);
 		break;
 	case CTF_K_UNKNOWN:
-		/*
-		 * The current CTF tools use CTF_K_UNKNOWN as a padding type. We
-		 * always declare two instances of CTF_K_UNKNOWN as different,
-		 * even though this leads to additional diff noise.
-		 */
 		ret = B_TRUE;
 		break;
 	default:
@@ -729,7 +678,8 @@ ctf_diff_try_candidate(ctf_diff_t *cds, ctf_id_t i, ctf_id_t j,
 		}
 		tofree = cdg;
 		cdg = cdg->cdg_next;
-		ctf_free(tofree, sizeof (ctf_diff_guess_t));
+		tofree->cdg_next = cds->cds_guess_free;
+		cds->cds_guess_free = tofree;
 	}
 
 	if (diff == B_FALSE) {
@@ -772,6 +722,13 @@ ctf_diff_check_chain(ctf_diff_t *cds, ctf_strhash_t *hp,
 		if (kindcache[j - jstart] != kind)
 			continue;
 		if (ivlen != (uint_t)-1 && vlencache[j - jstart] != ivlen)
+			continue;
+		if (cds->cds_reverse[TINDEX(j)] == i) {
+			*matchid = j;
+			return (B_FALSE);
+		}
+		if (!(cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) &&
+		    cds->cds_reverse[TINDEX(j)] != 0)
 			continue;
 
 		ret = ctf_diff_try_candidate(cds, i, j, matchid);
@@ -877,6 +834,18 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 		const char *iname;
 		ctf_id_t matchid = 0;
 		int diff;
+
+		/*
+		 * If this type was already matched during a nested
+		 * struct/union comparison (via the guess mechanism),
+		 * emit the match callback and skip re-processing.
+		 */
+		if (cds->cds_forward[TINDEX(i)] != 0 &&
+		    cds->cds_forward[TINDEX(i)] != CTF_ERR) {
+			cds->cds_func(cds->cds_ifp, i, B_TRUE, cds->cds_ofp,
+			    cds->cds_forward[TINDEX(i)], cds->cds_arg);
+			continue;
+		}
 
 		ctf_diff_get_type_info(cds->cds_ifp, i, &ikind, &ivlen,
 		    &iname);
@@ -1095,6 +1064,12 @@ ctf_diff_fini(ctf_diff_t *cds)
 		ctf_free(cds->cds_oobj,
 		    sizeof (ctf_diff_obj_t) * cds->cds_noobj);
 	cdg = cds->cds_guess;
+	while (cdg != NULL) {
+		ctf_diff_guess_t *tofree = cdg;
+		cdg = cdg->cdg_next;
+		ctf_free(tofree, sizeof (ctf_diff_guess_t));
+	}
+	cdg = cds->cds_guess_free;
 	while (cdg != NULL) {
 		ctf_diff_guess_t *tofree = cdg;
 		cdg = cdg->cdg_next;
