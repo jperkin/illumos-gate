@@ -699,12 +699,14 @@ ctf_merge_dedup_remap(ctf_merge_types_t *cmp)
  * we may be adding a type as a forward reference that doesn't exist yet.
  * Any types that we encounter in this form, we need to add to a third pass.
  *
- * Pass 3 is the fixup pass. Here we go through and find all the types that were
- * missing in the first.
+ * Pass 3 is the fixup pass where we add members to struct/union shells created
+ * in earlier passes.  No intermediate ctf_update() is needed between passes 2
+ * and 3: ctf_lookup_by_id(), ctf_type_encoding(), and ctf_array_info() all
+ * fall back to ctf_dtd_lookup() for dynamic types beyond ctf_typemax, making
+ * newly-created types immediately visible to ctf_add_member() and friends.
+ * The caller serialises the output after we return.
  *
- * Importantly, we *must* call ctf_update between the second and third pass,
- * otherwise several of the libctf functions will not properly find the data in
- * the container. If we're doing a dedup we also fix up the type mapping.
+ * If we're doing a dedup we also fix up the type mapping.
  */
 static int
 ctf_merge_common(ctf_merge_types_t *cmp)
@@ -735,10 +737,6 @@ ctf_merge_common(ctf_merge_types_t *cmp)
 			}
 		}
 	}
-
-	ret = ctf_update_nosyms(cmp->cm_out);
-	if (ret != 0)
-		return (ret);
 
 	if (cmp->cm_dedup == B_TRUE) {
 		ctf_merge_dedup_remap(cmp);
@@ -775,10 +773,6 @@ ctf_merge_uniquify_types(ctf_merge_types_t *cmp)
 		if (ret != 0)
 			return (ret);
 	}
-
-	ret = ctf_update_nosyms(cmp->cm_out);
-	if (ret != 0)
-		return (ret);
 
 	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
 		if (cmp->cm_tmap[i].cmt_fixup == B_FALSE)

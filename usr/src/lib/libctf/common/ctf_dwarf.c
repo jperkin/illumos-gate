@@ -1472,7 +1472,7 @@ ctf_dwarf_membcache_fini(ctf_dwarf_membcache_t *cache, int count, int cap)
 }
 
 static int
-ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
+ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base)
 {
 	int ret, kind, i;
 	Dwarf_Die child, memb;
@@ -1496,9 +1496,12 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
 	 * Hold the DWARF lock for all member iteration to minimize
 	 * mutex contention.  The nested DWARF_LOCK/DWARF_UNLOCK calls
 	 * inside helper functions become no-ops due to depth counting.
-	 * For B_TRUE (member addition), we cache the member data and
-	 * apply it after releasing the lock, since ctf_add_member
-	 * doesn't need DWARF access.
+	 *
+	 * In a single pass we both create any missing member types
+	 * (previously the B_FALSE pass) and cache member data for
+	 * deferred application.  The ctf_lookup_by_id() fallback to
+	 * ctf_dtd_lookup() makes newly-created dynamic types immediately
+	 * accessible without an intermediate serialization.
 	 */
 	DWARF_LOCK(cup);
 
@@ -1507,6 +1510,8 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
 		Dwarf_Die sib;
 		Dwarf_Half tag;
 		ctf_id_t mid;
+		char *mname = NULL;
+		ulong_t memboff = 0;
 
 		if ((ret = ctf_dwarf_tag(cup, memb, &tag)) != 0)
 			goto err;
@@ -1522,73 +1527,59 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
 		    &mid, CTF_ADD_NONROOT)) != 0)
 			goto err;
 
-		if (add == B_FALSE) {
-			if ((ret = ctf_dwarf_member_bitfield(cup, memb,
-			    &mid)) != 0)
-				goto err;
-		} else {
-			char *mname = NULL;
-			ulong_t memboff = 0;
-
-			/*
-			 * Read name and offset before member_bitfield
-			 * modifies mid, since member_offset may need
-			 * ctf_type_size on the original type.
-			 */
-			if ((ret = ctf_dwarf_string(cup, memb, DW_AT_name,
-			    &mname)) != 0 && ret != ENOENT) {
-				goto err;
-			}
-			if (ret == ENOENT)
-				mname = NULL;
-
-			if (kind == CTF_K_UNION) {
-				memboff = 0;
-			} else if ((ret = ctf_dwarf_member_offset(cup, memb,
-			    mid, &memboff)) != 0) {
-				if (mname != NULL)
-					ctf_strfree(mname);
-				goto err;
-			}
-
-			if ((ret = ctf_dwarf_member_bitfield(cup, memb,
-			    &mid)) != 0) {
-				if (mname != NULL)
-					ctf_strfree(mname);
-				goto err;
-			}
-
-			/* Grow cache if needed */
-			if (ncached >= maxcache) {
-				int newmax;
-				ctf_dwarf_membcache_t *newbuf;
-
-				newmax = maxcache == 0 ? 16 : maxcache * 2;
-				newbuf = ctf_alloc(
-				    newmax * sizeof (ctf_dwarf_membcache_t));
-				if (newbuf == NULL) {
-					if (mname != NULL)
-						ctf_strfree(mname);
-					ret = ENOMEM;
-					goto err;
-				}
-				if (cache != NULL) {
-					bcopy(cache, newbuf,
-					    ncached *
-					    sizeof (ctf_dwarf_membcache_t));
-					ctf_free(cache,
-					    maxcache *
-					    sizeof (ctf_dwarf_membcache_t));
-				}
-				cache = newbuf;
-				maxcache = newmax;
-			}
-
-			cache[ncached].cdmc_type = mid;
-			cache[ncached].cdmc_name = mname;
-			cache[ncached].cdmc_off = memboff;
-			ncached++;
+		if ((ret = ctf_dwarf_string(cup, memb, DW_AT_name,
+		    &mname)) != 0 && ret != ENOENT) {
+			goto err;
 		}
+		if (ret == ENOENT)
+			mname = NULL;
+
+		if (kind == CTF_K_UNION) {
+			memboff = 0;
+		} else if ((ret = ctf_dwarf_member_offset(cup, memb,
+		    mid, &memboff)) != 0) {
+			if (mname != NULL)
+				ctf_strfree(mname);
+			goto err;
+		}
+
+		if ((ret = ctf_dwarf_member_bitfield(cup, memb,
+		    &mid)) != 0) {
+			if (mname != NULL)
+				ctf_strfree(mname);
+			goto err;
+		}
+
+		/* Grow cache if needed */
+		if (ncached >= maxcache) {
+			int newmax;
+			ctf_dwarf_membcache_t *newbuf;
+
+			newmax = maxcache == 0 ? 16 : maxcache * 2;
+			newbuf = ctf_alloc(
+			    newmax * sizeof (ctf_dwarf_membcache_t));
+			if (newbuf == NULL) {
+				if (mname != NULL)
+					ctf_strfree(mname);
+				ret = ENOMEM;
+				goto err;
+			}
+			if (cache != NULL) {
+				bcopy(cache, newbuf,
+				    ncached *
+				    sizeof (ctf_dwarf_membcache_t));
+				ctf_free(cache,
+				    maxcache *
+				    sizeof (ctf_dwarf_membcache_t));
+			}
+			cache = newbuf;
+			maxcache = newmax;
+		}
+
+		cache[ncached].cdmc_type = mid;
+		cache[ncached].cdmc_name = mname;
+		cache[ncached].cdmc_off = memboff;
+		ncached++;
 
 		if ((ret = ctf_dwarf_sib(cup, memb, &sib)) != 0)
 			goto err;
@@ -1596,9 +1587,6 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
 	}
 
 	DWARF_UNLOCK(cup);
-
-	if (add == B_FALSE)
-		return (0);
 
 	/* Apply cached members outside the DWARF lock */
 	for (i = 0; i < ncached; i++) {
@@ -2716,7 +2704,7 @@ ctf_dwarf_convert_die(ctf_cu_t *cup, Dwarf_Die die)
 }
 
 static int
-ctf_dwarf_fixup_die(ctf_cu_t *cup, boolean_t addpass)
+ctf_dwarf_fixup_die(ctf_cu_t *cup)
 {
 	ctf_dwmap_t *map;
 
@@ -2725,8 +2713,8 @@ ctf_dwarf_fixup_die(ctf_cu_t *cup, boolean_t addpass)
 		int ret;
 		if (map->cdm_fix == B_FALSE)
 			continue;
-		if ((ret = ctf_dwarf_fixup_sou(cup, map->cdm_die, map->cdm_id,
-		    addpass)) != 0)
+		if ((ret = ctf_dwarf_fixup_sou(cup, map->cdm_die,
+		    map->cdm_id)) != 0)
 			return (ret);
 	}
 
@@ -3308,29 +3296,10 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 	if (ret != 0)
 		return (ret);
 
-	if (ctf_update_nosyms(cup->cu_ctfp) != 0) {
-		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
-		    "failed to update output ctf container"));
-	}
-
 	DWARF_LOCK(cup);
-	ret = ctf_dwarf_fixup_die(cup, B_FALSE);
+	ret = ctf_dwarf_fixup_die(cup);
 	DWARF_UNLOCK(cup);
-	ctf_dprintf("ctf_dwarf_fixup_die (%s, FALSE) returned %d\n", name,
-	    ret);
-	if (ret != 0)
-		return (ret);
-
-	if (ctf_update_nosyms(cup->cu_ctfp) != 0) {
-		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
-		    "failed to update output ctf container"));
-	}
-
-	DWARF_LOCK(cup);
-	ret = ctf_dwarf_fixup_die(cup, B_TRUE);
-	DWARF_UNLOCK(cup);
-	ctf_dprintf("ctf_dwarf_fixup_die (%s, TRUE) returned %d\n", name,
-	    ret);
+	ctf_dprintf("ctf_dwarf_fixup_die (%s) returned %d\n", name, ret);
 	if (ret != 0)
 		return (ret);
 

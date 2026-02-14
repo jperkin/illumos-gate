@@ -1517,7 +1517,7 @@ ctf_add_member(ctf_file_t *fp, ctf_id_t souid, const char *name, ctf_id_t type,
 	ctf_dmdef_t *dmd;
 
 	ulong_t mbitsz;
-	ssize_t msize, malign, ssize;
+	ssize_t msize, ssize;
 	uint_t kind, vlen, root;
 	int mkind;
 	char *s = NULL;
@@ -1554,7 +1554,6 @@ ctf_add_member(ctf_file_t *fp, ctf_id_t souid, const char *name, ctf_id_t type,
 	}
 
 	if ((msize = ctf_type_size(fp, type)) == CTF_ERR ||
-	    (malign = ctf_type_align(fp, type)) == CTF_ERR ||
 	    (mkind = ctf_type_kind(fp, type)) == CTF_ERR)
 		return (CTF_ERR); /* errno is set for us */
 
@@ -1610,6 +1609,13 @@ ctf_add_member(ctf_file_t *fp, ctf_id_t souid, const char *name, ctf_id_t type,
 		if (offset == ULONG_MAX) {
 			ctf_encoding_t linfo;
 			ssize_t lsize;
+			ssize_t malign;
+
+			if ((malign = ctf_type_align(fp, type)) == CTF_ERR) {
+				ctf_strfree(s);
+				ctf_free(dmd, sizeof (ctf_dmdef_t));
+				return (CTF_ERR); /* errno is set for us */
+			}
 
 			off = lmd->dmd_offset;
 			if (ctf_type_encoding(fp, ltype, &linfo) != CTF_ERR)

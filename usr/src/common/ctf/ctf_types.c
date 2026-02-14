@@ -28,6 +28,7 @@
  * Copyright 2020 Joyent, Inc.
  * Copyright 2020 OmniOS Community Edition (OmniOSce) Association.
  * Copyright 2025 Oxide Computer Company
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <ctf_impl.h>
@@ -693,9 +694,27 @@ ctf_type_encoding(ctf_file_t *fp, ctf_id_t type, ctf_encoding_t *ep)
 	const ctf_type_t *tp;
 	ssize_t increment;
 	uint_t data;
+	ctf_id_t idx;
 
 	if ((tp = ctf_lookup_by_id(&fp, type)) == NULL)
 		return (CTF_ERR); /* errno is set for us */
+
+	switch (LCTF_INFO_KIND(fp, tp->ctt_info)) {
+	case CTF_K_INTEGER:
+	case CTF_K_FLOAT:
+		break;
+	default:
+		return (ctf_set_errno(ofp, ECTF_NOTINTFP));
+	}
+
+	idx = CTF_TYPE_TO_INDEX(type);
+	if (idx > fp->ctf_typemax) {
+		ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, idx);
+		if (dtd != NULL) {
+			*ep = dtd->dtd_u.dtu_enc;
+			return (0);
+		}
+	}
 
 	(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
 
@@ -712,8 +731,6 @@ ctf_type_encoding(ctf_file_t *fp, ctf_id_t type, ctf_encoding_t *ep)
 		ep->cte_offset = CTF_FP_OFFSET(data);
 		ep->cte_bits = CTF_FP_BITS(data);
 		break;
-	default:
-		return (ctf_set_errno(ofp, ECTF_NOTINTFP));
 	}
 
 	return (0);
@@ -950,12 +967,22 @@ ctf_array_info(ctf_file_t *fp, ctf_id_t type, ctf_arinfo_t *arp)
 	const ctf_type_t *tp;
 	const ctf_array_t *ap;
 	ssize_t increment;
+	ctf_id_t idx;
 
 	if ((tp = ctf_lookup_by_id(&fp, type)) == NULL)
 		return (CTF_ERR); /* errno is set for us */
 
 	if (LCTF_INFO_KIND(fp, tp->ctt_info) != CTF_K_ARRAY)
 		return (ctf_set_errno(ofp, ECTF_NOTARRAY));
+
+	idx = CTF_TYPE_TO_INDEX(type);
+	if (idx > fp->ctf_typemax) {
+		ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, idx);
+		if (dtd != NULL) {
+			*arp = dtd->dtd_u.dtu_arr;
+			return (0);
+		}
+	}
 
 	(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
 

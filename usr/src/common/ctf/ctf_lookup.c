@@ -27,6 +27,7 @@
 
 /*
  * Copyright 2019, Joyent, Inc.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <sys/sysmacros.h>
@@ -219,6 +220,7 @@ const ctf_type_t *
 ctf_lookup_by_id(ctf_file_t **fpp, ctf_id_t type)
 {
 	ctf_file_t *fp = *fpp; /* caller passes in starting CTF container */
+	ctf_dtdef_t *dtd;
 
 	if ((fp->ctf_flags & LCTF_CHILD) && CTF_TYPE_ISPARENT(type) &&
 	    (fp = fp->ctf_parent) == NULL) {
@@ -230,6 +232,11 @@ ctf_lookup_by_id(ctf_file_t **fpp, ctf_id_t type)
 	if (type > 0 && type <= fp->ctf_typemax) {
 		*fpp = fp; /* function returns ending CTF container */
 		return (LCTF_INDEX_TO_TYPEPTR(fp, type));
+	}
+
+	if ((dtd = ctf_dtd_lookup(fp, type)) != NULL) {
+		*fpp = fp;
+		return (&dtd->dtd_data);
 	}
 
 	(void) ctf_set_errno(fp, ECTF_BADID);
