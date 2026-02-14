@@ -287,6 +287,7 @@ typedef struct ctf_die {
 	ctf_list_t	cu_bitfields;	/* Bit field members */
 	Dwarf_Debug	cu_dwarf;	/* libdwarf handle */
 	mutex_t		*cu_dwlock;	/* libdwarf lock */
+	uint_t		cu_dwlockdepth;	/* lock nesting depth */
 	Dwarf_Die	cu_cu;		/* libdwarf compilation unit */
 	Dwarf_Off	cu_cuoff;	/* cu's offset */
 	Dwarf_Off	cu_maxoff;	/* maximum offset */
@@ -318,11 +319,15 @@ static int ctf_dwarf_convert_fargs(ctf_cu_t *, Dwarf_Die, ctf_funcinfo_t *,
     ctf_id_t *);
 
 #define	DWARF_LOCK(cup) \
-	if ((cup)->cu_dwlock != NULL) \
-		mutex_enter((cup)->cu_dwlock)
+	if ((cup)->cu_dwlock != NULL) { \
+		if ((cup)->cu_dwlockdepth++ == 0) \
+			mutex_enter((cup)->cu_dwlock); \
+	}
 #define	DWARF_UNLOCK(cup) \
-	if ((cup)->cu_dwlock != NULL) \
-		mutex_exit((cup)->cu_dwlock)
+	if ((cup)->cu_dwlock != NULL) { \
+		if (--(cup)->cu_dwlockdepth == 0) \
+			mutex_exit((cup)->cu_dwlock); \
+	}
 
 /*
  * This is a generic way to set a CTF Conversion backend error depending on what
@@ -1442,12 +1447,38 @@ ctf_dwarf_member_bitfield(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t *idp)
 	return (0);
 }
 
+/*
+ * Cached member data for deferred application after releasing the
+ * DWARF lock.  We read all member attributes under a single lock
+ * hold for the entire struct/union, then apply them outside the lock.
+ */
+typedef struct ctf_dwarf_membcache {
+	ctf_id_t	cdmc_type;	/* member type ID (post-bitfield) */
+	char		*cdmc_name;	/* member name (may be NULL) */
+	ulong_t		cdmc_off;	/* member offset */
+} ctf_dwarf_membcache_t;
+
+static void
+ctf_dwarf_membcache_fini(ctf_dwarf_membcache_t *cache, int count, int cap)
+{
+	int i;
+
+	for (i = 0; i < count; i++) {
+		if (cache[i].cdmc_name != NULL)
+			ctf_strfree(cache[i].cdmc_name);
+	}
+	if (cache != NULL)
+		ctf_free(cache, cap * sizeof (ctf_dwarf_membcache_t));
+}
+
 static int
 ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
 {
-	int ret, kind;
+	int ret, kind, i;
 	Dwarf_Die child, memb;
 	Dwarf_Unsigned size;
+	ctf_dwarf_membcache_t *cache = NULL;
+	int ncached = 0, maxcache = 0;
 
 	kind = ctf_type_kind(cup->cu_ctfp, base);
 	VERIFY(kind != CTF_ERR);
@@ -1461,78 +1492,130 @@ ctf_dwarf_fixup_sou(ctf_cu_t *cup, Dwarf_Die die, ctf_id_t base, boolean_t add)
 	if (child == NULL)
 		return (0);
 
+	/*
+	 * Hold the DWARF lock for all member iteration to minimize
+	 * mutex contention.  The nested DWARF_LOCK/DWARF_UNLOCK calls
+	 * inside helper functions become no-ops due to depth counting.
+	 * For B_TRUE (member addition), we cache the member data and
+	 * apply it after releasing the lock, since ctf_add_member
+	 * doesn't need DWARF access.
+	 */
+	DWARF_LOCK(cup);
+
 	memb = child;
 	while (memb != NULL) {
 		Dwarf_Die sib;
 		Dwarf_Half tag;
 		ctf_id_t mid;
-		char *mname;
-		ulong_t memboff = 0;
 
 		if ((ret = ctf_dwarf_tag(cup, memb, &tag)) != 0)
-			return (ret);
+			goto err;
 
-		if (tag != DW_TAG_member)
-			goto next;
+		if (tag != DW_TAG_member) {
+			if ((ret = ctf_dwarf_sib(cup, memb, &sib)) != 0)
+				goto err;
+			memb = sib;
+			continue;
+		}
 
 		if ((ret = ctf_dwarf_convert_reftype(cup, memb, DW_AT_type,
 		    &mid, CTF_ADD_NONROOT)) != 0)
-			return (ret);
-		ctf_dprintf("Got back type id: %d\n", mid);
+			goto err;
 
-		/*
-		 * If we're not adding a member, just go ahead and return.
-		 */
 		if (add == B_FALSE) {
 			if ((ret = ctf_dwarf_member_bitfield(cup, memb,
 			    &mid)) != 0)
-				return (ret);
-			goto next;
+				goto err;
+		} else {
+			char *mname = NULL;
+			ulong_t memboff = 0;
+
+			/*
+			 * Read name and offset before member_bitfield
+			 * modifies mid, since member_offset may need
+			 * ctf_type_size on the original type.
+			 */
+			if ((ret = ctf_dwarf_string(cup, memb, DW_AT_name,
+			    &mname)) != 0 && ret != ENOENT) {
+				goto err;
+			}
+			if (ret == ENOENT)
+				mname = NULL;
+
+			if (kind == CTF_K_UNION) {
+				memboff = 0;
+			} else if ((ret = ctf_dwarf_member_offset(cup, memb,
+			    mid, &memboff)) != 0) {
+				if (mname != NULL)
+					ctf_strfree(mname);
+				goto err;
+			}
+
+			if ((ret = ctf_dwarf_member_bitfield(cup, memb,
+			    &mid)) != 0) {
+				if (mname != NULL)
+					ctf_strfree(mname);
+				goto err;
+			}
+
+			/* Grow cache if needed */
+			if (ncached >= maxcache) {
+				int newmax;
+				ctf_dwarf_membcache_t *newbuf;
+
+				newmax = maxcache == 0 ? 16 : maxcache * 2;
+				newbuf = ctf_alloc(
+				    newmax * sizeof (ctf_dwarf_membcache_t));
+				if (newbuf == NULL) {
+					if (mname != NULL)
+						ctf_strfree(mname);
+					ret = ENOMEM;
+					goto err;
+				}
+				if (cache != NULL) {
+					bcopy(cache, newbuf,
+					    ncached *
+					    sizeof (ctf_dwarf_membcache_t));
+					ctf_free(cache,
+					    maxcache *
+					    sizeof (ctf_dwarf_membcache_t));
+				}
+				cache = newbuf;
+				maxcache = newmax;
+			}
+
+			cache[ncached].cdmc_type = mid;
+			cache[ncached].cdmc_name = mname;
+			cache[ncached].cdmc_off = memboff;
+			ncached++;
 		}
 
-		if ((ret = ctf_dwarf_string(cup, memb, DW_AT_name,
-		    &mname)) != 0 && ret != ENOENT)
-			return (ret);
-		if (ret == ENOENT)
-			mname = NULL;
-
-		if (kind == CTF_K_UNION) {
-			memboff = 0;
-		} else if ((ret = ctf_dwarf_member_offset(cup, memb, mid,
-		    &memboff)) != 0) {
-			if (mname != NULL)
-				ctf_strfree(mname);
-			return (ret);
-		}
-
-		if ((ret = ctf_dwarf_member_bitfield(cup, memb, &mid)) != 0)
-			return (ret);
-
-		ret = ctf_add_member(cup->cu_ctfp, base, mname, mid, memboff);
-		if (ret == CTF_ERR) {
-			(void) snprintf(cup->cu_errbuf, cup->cu_errlen,
-			    "failed to add member %s: %s\n",
-			    mname, ctf_errmsg(ctf_errno(cup->cu_ctfp)));
-			if (mname != NULL)
-				ctf_strfree(mname);
-			return (ECTF_CONVBKERR);
-		}
-
-		if (mname != NULL)
-			ctf_strfree(mname);
-
-next:
 		if ((ret = ctf_dwarf_sib(cup, memb, &sib)) != 0)
-			return (ret);
+			goto err;
 		memb = sib;
 	}
 
-	/*
-	 * If we're not adding members, then we don't know the final size of the
-	 * structure, so end here.
-	 */
+	DWARF_UNLOCK(cup);
+
 	if (add == B_FALSE)
 		return (0);
+
+	/* Apply cached members outside the DWARF lock */
+	for (i = 0; i < ncached; i++) {
+		ret = ctf_add_member(cup->cu_ctfp, base,
+		    cache[i].cdmc_name, cache[i].cdmc_type,
+		    cache[i].cdmc_off);
+		if (ret == CTF_ERR) {
+			(void) snprintf(cup->cu_errbuf, cup->cu_errlen,
+			    "failed to add member %s: %s\n",
+			    cache[i].cdmc_name,
+			    ctf_errmsg(ctf_errno(cup->cu_ctfp)));
+			ctf_dwarf_membcache_fini(cache, ncached, maxcache);
+			return (ECTF_CONVBKERR);
+		}
+	}
+
+	ctf_dwarf_membcache_fini(cache, ncached, maxcache);
 
 	/* Finally set the size of the structure to the actual byte size */
 	if ((ret = ctf_dwarf_unsigned(cup, die, DW_AT_byte_size, &size)) != 0)
@@ -1546,6 +1629,11 @@ next:
 	}
 
 	return (0);
+
+err:
+	DWARF_UNLOCK(cup);
+	ctf_dwarf_membcache_fini(cache, ncached, maxcache);
+	return (ret);
 }
 
 static int
@@ -2611,11 +2699,17 @@ ctf_dwarf_convert_die(ctf_cu_t *cup, Dwarf_Die die)
 		int ret;
 		Dwarf_Die sib;
 
-		if ((ret = ctf_dwarf_walk_toplevel(cup, die)) != 0)
+		DWARF_LOCK(cup);
+		if ((ret = ctf_dwarf_walk_toplevel(cup, die)) != 0) {
+			DWARF_UNLOCK(cup);
 			return (ret);
+		}
 
-		if ((ret = ctf_dwarf_sib(cup, die, &sib)) != 0)
+		if ((ret = ctf_dwarf_sib(cup, die, &sib)) != 0) {
+			DWARF_UNLOCK(cup);
 			return (ret);
+		}
+		DWARF_UNLOCK(cup);
 		die = sib;
 	}
 	return (0);
@@ -3201,7 +3295,14 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 	ctf_dprintf("converting die: %s - max offset: %x\n", name,
 	    cup->cu_maxoff);
 
+	/*
+	 * Batch the convert_die and fixup phases under CU-level
+	 * DWARF locks to minimize mutex contention.  The nested locks
+	 * inside helper functions become no-ops due to depth counting.
+	 */
+	DWARF_LOCK(cup);
 	ret = ctf_dwarf_convert_die(cup, cup->cu_cu);
+	DWARF_UNLOCK(cup);
 	ctf_dprintf("ctf_dwarf_convert_die (%s) returned %d\n", name,
 	    ret);
 	if (ret != 0)
@@ -3212,7 +3313,9 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 		    "failed to update output ctf container"));
 	}
 
+	DWARF_LOCK(cup);
 	ret = ctf_dwarf_fixup_die(cup, B_FALSE);
+	DWARF_UNLOCK(cup);
 	ctf_dprintf("ctf_dwarf_fixup_die (%s, FALSE) returned %d\n", name,
 	    ret);
 	if (ret != 0)
@@ -3223,7 +3326,9 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 		    "failed to update output ctf container"));
 	}
 
+	DWARF_LOCK(cup);
 	ret = ctf_dwarf_fixup_die(cup, B_TRUE);
+	DWARF_UNLOCK(cup);
 	ctf_dprintf("ctf_dwarf_fixup_die (%s, TRUE) returned %d\n", name,
 	    ret);
 	if (ret != 0)
@@ -3257,9 +3362,8 @@ ctf_dwarf_convert_one(void *arg, void *unused)
 		    "failed to convert strong functions and variables"));
 	}
 
-	if ((cup->cu_symtmpl != NULL ?
-	    ctf_update_nosyms(cup->cu_ctfp) :
-	    ctf_update(cup->cu_ctfp)) != 0) {
+	if (cup->cu_symtmpl == NULL &&
+	    ctf_update(cup->cu_ctfp) != 0) {
 		return (ctf_dwarf_error(cup, cup->cu_ctfp, 0,
 		    "failed to update output ctf container"));
 	}
