@@ -161,6 +161,21 @@ ctf_strfree(char *s)
 }
 
 /*
+ * Return the highest valid type index for the container, including dynamic
+ * types that have not yet been serialized.
+ */
+ulong_t
+ctf_dyn_typemax(const ctf_file_t *fp)
+{
+	ulong_t max = fp->ctf_typemax;
+
+	if (fp->ctf_dtnextid > 0 && (ulong_t)(fp->ctf_dtnextid - 1) > max)
+		max = fp->ctf_dtnextid - 1;
+
+	return (max);
+}
+
+/*
  * Store the specified error code into errp if it is non-NULL, and then
  * return NULL for the benefit of the caller.
  */

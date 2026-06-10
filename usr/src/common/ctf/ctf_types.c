@@ -94,6 +94,28 @@ ctf_member_iter(ctf_file_t *fp, ctf_id_t type, ctf_member_f *func, void *arg)
 	if (kind != CTF_K_STRUCT && kind != CTF_K_UNION)
 		return (ctf_set_errno(ofp, ECTF_NOTSOU));
 
+	/*
+	 * A dynamic type keeps its members in its definition rather than
+	 * trailing the type header.
+	 */
+	if (CTF_TYPE_TO_INDEX(type) > fp->ctf_typemax) {
+		const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+		const ctf_dmdef_t *dmd;
+
+		VERIFY(dtd != NULL);
+		for (dmd = ctf_list_next(&dtd->dtd_u.dtu_members);
+		    dmd != NULL; dmd = ctf_list_next(dmd)) {
+			const char *name =
+			    dmd->dmd_name != NULL ? dmd->dmd_name : "";
+
+			if ((rc = func(name, dmd->dmd_type, dmd->dmd_offset,
+			    arg)) != 0)
+				return (rc);
+		}
+
+		return (0);
+	}
+
 	if (fp->ctf_version == CTF_VERSION_1 || size < CTF_LSTRUCT_THRESH) {
 		const ctf_member_t *mp = (const ctf_member_t *)
 		    ((uintptr_t)tp + increment);
@@ -142,6 +164,25 @@ ctf_enum_iter(ctf_file_t *fp, ctf_id_t type, ctf_enum_f *func, void *arg)
 
 	if (LCTF_INFO_KIND(fp, tp->ctt_info) != CTF_K_ENUM)
 		return (ctf_set_errno(ofp, ECTF_NOTENUM));
+
+	/*
+	 * A dynamic type keeps its enumerators in its definition rather than
+	 * trailing the type header.
+	 */
+	if (CTF_TYPE_TO_INDEX(type) > fp->ctf_typemax) {
+		const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+		const ctf_dmdef_t *dmd;
+
+		VERIFY(dtd != NULL);
+		for (dmd = ctf_list_next(&dtd->dtd_u.dtu_members);
+		    dmd != NULL; dmd = ctf_list_next(dmd)) {
+			if ((rc = func(dmd->dmd_name, dmd->dmd_value,
+			    arg)) != 0)
+				return (rc);
+		}
+
+		return (0);
+	}
 
 	(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
 
@@ -1174,6 +1215,16 @@ ctf_func_info_by_id(ctf_file_t *fp, ctf_id_t type, ctf_funcinfo_t *fip)
 
 	/* dp should now point to the first argument */
 	if (nargs != 0) {
+		if (CTF_TYPE_TO_INDEX(type) > fp->ctf_typemax) {
+			const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+
+			VERIFY(dtd != NULL);
+			if (dtd->dtd_u.dtu_argv[nargs - 1] == 0) {
+				fip->ctc_flags |= CTF_FUNC_VARARG;
+				fip->ctc_argc--;
+			}
+			return (0);
+		}
 		(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
 		dp = (ushort_t *)((uintptr_t)fp->ctf_buf +
 		    fp->ctf_txlate[CTF_TYPE_TO_INDEX(type)] + increment);
@@ -1202,6 +1253,22 @@ ctf_func_args_by_id(ctf_file_t *fp, ctf_id_t type, uint_t argc, ctf_id_t *argv)
 		return (ctf_set_errno(ofp, ECTF_NOTFUNC));
 
 	nargs = LCTF_INFO_VLEN(fp, tp->ctt_info);
+
+	if (CTF_TYPE_TO_INDEX(type) > fp->ctf_typemax) {
+		const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+		const ctf_id_t *ap;
+
+		VERIFY(dtd != NULL);
+		ap = dtd->dtd_u.dtu_argv;
+		if (nargs != 0 && ap[nargs - 1] == 0)
+			nargs--;
+
+		for (nargs = MIN(argc, nargs); nargs != 0; nargs--)
+			*argv++ = *ap++;
+
+		return (0);
+	}
+
 	(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
 	dp = (ushort_t *)((uintptr_t)fp->ctf_buf +
 	    fp->ctf_txlate[CTF_TYPE_TO_INDEX(type)] +

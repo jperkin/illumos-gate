@@ -303,6 +303,8 @@ extern ssize_t ctf_get_ctt_size(const ctf_file_t *, const ctf_type_t *,
 extern void ctf_set_ctt_size(ctf_type_t *, ssize_t);
 
 extern const ctf_type_t *ctf_lookup_by_id(ctf_file_t **, ctf_id_t);
+extern const char *ctf_type_rname(ctf_file_t *, const ctf_type_t *, ctf_id_t);
+extern ulong_t ctf_dyn_typemax(const ctf_file_t *);
 
 extern ctf_file_t *ctf_fdcreate_int(int, int *, ctf_sect_t *);
 

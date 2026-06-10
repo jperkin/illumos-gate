@@ -252,6 +252,25 @@ ctf_lookup_by_id(ctf_file_t **fpp, ctf_id_t type)
 }
 
 /*
+ * Return the raw name of a type, given the header that ctf_lookup_by_id()
+ * resolved for it.  A dynamic type's name lives in its definition, not the
+ * string table; its ctt_name only becomes meaningful at serialization.
+ * Returns NULL for anonymous dynamic types, mirroring ctf_strraw().
+ */
+const char *
+ctf_type_rname(ctf_file_t *fp, const ctf_type_t *tp, ctf_id_t type)
+{
+	if (CTF_TYPE_TO_INDEX(type) > fp->ctf_typemax) {
+		const ctf_dtdef_t *dtd = (const ctf_dtdef_t *)
+		    ((uintptr_t)tp - offsetof(ctf_dtdef_t, dtd_data));
+
+		return (dtd->dtd_name);
+	}
+
+	return (ctf_strraw(fp, tp->ctt_name));
+}
+
+/*
  * Given a symbol table index, return the info for the function described
  * by the corresponding entry in the symbol table.
  */
