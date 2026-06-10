@@ -686,11 +686,11 @@ ctf_merge_dedup_remap(ctf_merge_types_t *cmp)
  * Any types that we encounter in this form, we need to add to a third pass.
  *
  * Pass 3 is the fixup pass where we add members to struct/union shells created
- * in earlier passes.  No intermediate ctf_update() is needed between passes 2
- * and 3: ctf_lookup_by_id(), ctf_type_encoding(), and ctf_array_info() all
- * fall back to ctf_dtd_lookup() for dynamic types beyond ctf_typemax, making
- * newly-created types immediately visible to ctf_add_member() and friends.
- * The caller serialises the output after we return.
+ * in earlier passes.  No serialization is needed at any point: the dynamic
+ * type fallbacks in ctf_lookup_by_id() and friends make newly-created types
+ * immediately visible, both within this merge and to any later merge or diff
+ * that consumes the output.  The final container is serialized once, by
+ * ctf_merge_merge() or by a standalone dedup.
  *
  * If we're doing a dedup we also fix up the type mapping.
  */
@@ -864,14 +864,15 @@ ctf_merge_types(void *arg, void *arg2, void **outp, void *unsued)
 	ret = ctf_diff_types(cdp, ctf_merge_diffcb, &cm);
 	if (ret != 0)
 		goto cleanup;
+
+	/*
+	 * The newly merged types stay dynamic; ctf_merge_merge() serializes
+	 * the final container once after the last merge.
+	 */
 	ret = ctf_merge_common(&cm);
 	ctf_dprintf("merge common returned with %d\n", ret);
-	if (ret == 0) {
-		ret = ctf_update_nosyms(out);
-		ctf_dprintf("update returned with %d\n", ret);
-	} else {
+	if (ret != 0)
 		goto cleanup;
-	}
 
 	/*
 	 * Now we need to fix up the object and function maps.
@@ -945,8 +946,6 @@ ctf_uniquify_types(ctf_merge_t *cmh, ctf_file_t *src, ctf_file_t **outp)
 	if (ret == 0) {
 		cm.cm_out = out;
 		ret = ctf_merge_uniquify_types(&cm);
-		if (ret == 0)
-			ret = ctf_update_nosyms(out);
 	}
 
 	if (ret != 0) {
@@ -1710,7 +1709,7 @@ ctf_merge_merge(ctf_merge_t *cmh, ctf_file_t **outp)
 		out = u;
 	}
 
-	ltype = out->ctf_typemax;
+	ltype = ctf_dyn_typemax(out);
 	if ((out->ctf_flags & LCTF_CHILD) && ltype != 0)
 		ltype += CTF_CHILD_START;
 	ctf_dprintf("trying to add the label\n");
@@ -1846,8 +1845,6 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 	ctf_dprintf("Successfully diffed types\n");
 	ret = ctf_merge_common(&cm);
 	ctf_dprintf("deduping types result: %d\n", ret);
-	if (ret == 0)
-		ret = ctf_update_nosyms(cm.cm_out);
 	if (ret != 0)
 		goto err;
 
@@ -1966,8 +1963,13 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 		}
 	}
 
+	/*
+	 * In batch mode the dedup output feeds a merge, which reads dynamic
+	 * types and pending symbols directly; only a standalone dedup result
+	 * must be serialized here.
+	 */
 	if (cm.cm_out->ctf_symvalid != NULL)
-		ret = ctf_update_nosyms(cm.cm_out);
+		ret = 0;
 	else
 		ret = ctf_update(cm.cm_out);
 	if (ret == 0) {
