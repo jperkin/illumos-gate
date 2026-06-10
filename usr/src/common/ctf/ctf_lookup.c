@@ -221,6 +221,7 @@ ctf_lookup_by_id(ctf_file_t **fpp, ctf_id_t type)
 {
 	ctf_file_t *fp = *fpp; /* caller passes in starting CTF container */
 	ctf_dtdef_t *dtd;
+	ctf_id_t idx;
 
 	if ((fp->ctf_flags & LCTF_CHILD) && CTF_TYPE_ISPARENT(type) &&
 	    (fp = fp->ctf_parent) == NULL) {
@@ -228,12 +229,19 @@ ctf_lookup_by_id(ctf_file_t **fpp, ctf_id_t type)
 		return (NULL);
 	}
 
-	type = CTF_TYPE_TO_INDEX(type);
-	if (type > 0 && type <= fp->ctf_typemax) {
+	idx = CTF_TYPE_TO_INDEX(type);
+	if (idx > 0 && idx <= fp->ctf_typemax) {
 		*fpp = fp; /* function returns ending CTF container */
-		return (LCTF_INDEX_TO_TYPEPTR(fp, type));
+		return (LCTF_INDEX_TO_TYPEPTR(fp, idx));
 	}
 
+	/*
+	 * Dynamic types are resolved from their definitions.  ctf_dtd_lookup()
+	 * is keyed on the full type ID, including any child container bit.
+	 * Only accessors that understand the dynamic representation, such as
+	 * ctf_type_encoding() and ctf_array_info(), may read data trailing
+	 * the returned ctf_type_t; for a dynamic type no such data exists.
+	 */
 	if ((dtd = ctf_dtd_lookup(fp, type)) != NULL) {
 		*fpp = fp;
 		return (&dtd->dtd_data);

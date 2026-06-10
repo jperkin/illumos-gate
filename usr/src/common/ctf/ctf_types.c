@@ -707,13 +707,19 @@ ctf_type_encoding(ctf_file_t *fp, ctf_id_t type, ctf_encoding_t *ep)
 		return (ctf_set_errno(ofp, ECTF_NOTINTFP));
 	}
 
+	/*
+	 * A type index beyond ctf_typemax means ctf_lookup_by_id() resolved a
+	 * dynamic type, whose encoding lives in its definition, not in the
+	 * static type section.  ctf_dtd_lookup() is keyed on the full type ID,
+	 * including any child container bit.
+	 */
 	idx = CTF_TYPE_TO_INDEX(type);
 	if (idx > fp->ctf_typemax) {
-		ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, idx);
-		if (dtd != NULL) {
-			*ep = dtd->dtd_u.dtu_enc;
-			return (0);
-		}
+		const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+
+		VERIFY(dtd != NULL);
+		*ep = dtd->dtd_u.dtu_enc;
+		return (0);
 	}
 
 	(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
@@ -975,13 +981,18 @@ ctf_array_info(ctf_file_t *fp, ctf_id_t type, ctf_arinfo_t *arp)
 	if (LCTF_INFO_KIND(fp, tp->ctt_info) != CTF_K_ARRAY)
 		return (ctf_set_errno(ofp, ECTF_NOTARRAY));
 
+	/*
+	 * As in ctf_type_encoding(), array information for a dynamic type
+	 * lives in its definition; ctf_dtd_lookup() is keyed on the full
+	 * type ID.
+	 */
 	idx = CTF_TYPE_TO_INDEX(type);
 	if (idx > fp->ctf_typemax) {
-		ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, idx);
-		if (dtd != NULL) {
-			*arp = dtd->dtd_u.dtu_arr;
-			return (0);
-		}
+		const ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+
+		VERIFY(dtd != NULL);
+		*arp = dtd->dtd_u.dtu_arr;
+		return (0);
 	}
 
 	(void) ctf_get_ctt_size(fp, tp, NULL, &increment);
