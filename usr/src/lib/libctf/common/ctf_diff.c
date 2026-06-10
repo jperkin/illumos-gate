@@ -286,6 +286,61 @@ out:
 }
 
 /*
+ * Cursor over the members of a struct or union.  A static type's members
+ * trail the type header in small or large form; a dynamic type's members
+ * live in its definition.
+ */
+typedef struct ctf_diff_member {
+	ctf_file_t *cdmr_fp;
+	const ctf_member_t *cdmr_mp;
+	const ctf_lmember_t *cdmr_lmp;
+	const ctf_dmdef_t *cdmr_dmd;
+} ctf_diff_member_t;
+
+static void
+ctf_diff_member_init(ctf_diff_member_t *cdmr, ctf_file_t *fp,
+    const ctf_type_t *tp, ctf_id_t id, ssize_t size, ssize_t incr)
+{
+	bzero(cdmr, sizeof (ctf_diff_member_t));
+	cdmr->cdmr_fp = fp;
+
+	if (CTF_TYPE_TO_INDEX(id) > fp->ctf_typemax) {
+		ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, id);
+
+		VERIFY(dtd != NULL);
+		cdmr->cdmr_dmd = ctf_list_next(&dtd->dtd_u.dtu_members);
+	} else if (fp->ctf_version == CTF_VERSION_1 ||
+	    size < CTF_LSTRUCT_THRESH) {
+		cdmr->cdmr_mp = (const ctf_member_t *)((uintptr_t)tp + incr);
+	} else {
+		cdmr->cdmr_lmp = (const ctf_lmember_t *)((uintptr_t)tp + incr);
+	}
+}
+
+static void
+ctf_diff_member_next(ctf_diff_member_t *cdmr, const char **namep,
+    ctf_id_t *typep, ulong_t *offp)
+{
+	if (cdmr->cdmr_dmd != NULL) {
+		*namep = cdmr->cdmr_dmd->dmd_name != NULL ?
+		    cdmr->cdmr_dmd->dmd_name : "";
+		*typep = cdmr->cdmr_dmd->dmd_type;
+		*offp = cdmr->cdmr_dmd->dmd_offset;
+		cdmr->cdmr_dmd = ctf_list_next(cdmr->cdmr_dmd);
+	} else if (cdmr->cdmr_mp != NULL) {
+		*namep = ctf_strptr(cdmr->cdmr_fp, cdmr->cdmr_mp->ctm_name);
+		*typep = cdmr->cdmr_mp->ctm_type;
+		*offp = cdmr->cdmr_mp->ctm_offset;
+		cdmr->cdmr_mp++;
+	} else {
+		*namep = ctf_strptr(cdmr->cdmr_fp, cdmr->cdmr_lmp->ctlm_name);
+		*typep = cdmr->cdmr_lmp->ctlm_type;
+		*offp = (ulong_t)CTF_LMEM_OFFSET(cdmr->cdmr_lmp);
+		cdmr->cdmr_lmp++;
+	}
+}
+
+/*
  * Two structures are the same if every member is identical to its corresponding
  * type, at the same offset, and has the same name, as well as them having the
  * same overall size.
@@ -295,8 +350,7 @@ ctf_diff_struct(ctf_diff_t *cds, ctf_file_t *ifp, const ctf_type_t *itp,
     ctf_id_t iid, ctf_file_t *ofp, const ctf_type_t *otp, ctf_id_t oid)
 {
 	ssize_t isize, iincr, osize, oincr;
-	const ctf_member_t *imp, *omp;
-	const ctf_lmember_t *ilmp, *olmp;
+	ctf_diff_member_t imr, omr;
 	int n;
 	ctf_diff_guess_t *cdg;
 
@@ -310,21 +364,8 @@ ctf_diff_struct(ctf_diff_t *cds, ctf_file_t *ifp, const ctf_type_t *itp,
 	    LCTF_INFO_VLEN(ofp, otp->ctt_info))
 		return (B_TRUE);
 
-	if (ifp->ctf_version == CTF_VERSION_1 || isize < CTF_LSTRUCT_THRESH) {
-		imp = (const ctf_member_t *)((uintptr_t)itp + iincr);
-		ilmp = NULL;
-	} else {
-		imp = NULL;
-		ilmp = (const ctf_lmember_t *)((uintptr_t)itp + iincr);
-	}
-
-	if (ofp->ctf_version == CTF_VERSION_1 || osize < CTF_LSTRUCT_THRESH) {
-		omp = (const ctf_member_t *)((uintptr_t)otp + oincr);
-		olmp = NULL;
-	} else {
-		omp = NULL;
-		olmp = (const ctf_lmember_t *)((uintptr_t)otp + oincr);
-	}
+	ctf_diff_member_init(&imr, ifp, itp, iid, isize, iincr);
+	ctf_diff_member_init(&omr, ofp, otp, oid, osize, oincr);
 
 	/*
 	 * Insert our assumption that they're equal for the moment.
@@ -350,25 +391,8 @@ ctf_diff_struct(ctf_diff_t *cds, ctf_file_t *ifp, const ctf_type_t *itp,
 		ctf_id_t itype, otype;
 		int ret;
 
-		if (imp != NULL) {
-			iname = ctf_strptr(ifp, imp->ctm_name);
-			ioff = imp->ctm_offset;
-			itype = imp->ctm_type;
-		} else {
-			iname = ctf_strptr(ifp, ilmp->ctlm_name);
-			ioff = CTF_LMEM_OFFSET(ilmp);
-			itype = ilmp->ctlm_type;
-		}
-
-		if (omp != NULL) {
-			oname = ctf_strptr(ofp, omp->ctm_name);
-			ooff = omp->ctm_offset;
-			otype = omp->ctm_type;
-		} else {
-			oname = ctf_strptr(ofp, olmp->ctlm_name);
-			ooff = CTF_LMEM_OFFSET(olmp);
-			otype = olmp->ctlm_type;
-		}
+		ctf_diff_member_next(&imr, &iname, &itype, &ioff);
+		ctf_diff_member_next(&omr, &oname, &otype, &ooff);
 
 		if (ioff != ooff) {
 			return (B_TRUE);
@@ -380,16 +404,6 @@ ctf_diff_struct(ctf_diff_t *cds, ctf_file_t *ifp, const ctf_type_t *itp,
 		if (ret != B_FALSE) {
 			return (ret);
 		}
-
-		/* Advance our pointers */
-		if (imp != NULL)
-			imp++;
-		if (ilmp != NULL)
-			ilmp++;
-		if (omp != NULL)
-			omp++;
-		if (olmp != NULL)
-			olmp++;
 	}
 
 	return (B_FALSE);
@@ -518,34 +532,70 @@ ctf_diff_union(ctf_diff_t *cds, ctf_file_t *ifp, const ctf_type_t *itp,
 
 /*
  * Two enums are equivalent if they share the same underlying type and they have
- * the same set of members.
+ * the same set of members.  A static type's enumerators trail the type
+ * header; a dynamic type's live in its definition.
  */
 static int
-ctf_diff_enum(ctf_file_t *ifp, const ctf_type_t *itp,
-    ctf_file_t *ofp, const ctf_type_t *otp)
+ctf_diff_enum(ctf_file_t *ifp, const ctf_type_t *itp, ctf_id_t iid,
+    ctf_file_t *ofp, const ctf_type_t *otp, ctf_id_t oid)
 {
-	ssize_t iincr, oincr;
-	const ctf_enum_t *iep, *oep;
+	ssize_t incr;
+	const ctf_enum_t *iep = NULL, *oep = NULL;
+	const ctf_dmdef_t *idmd = NULL, *odmd = NULL;
 	int n;
 
 	if (LCTF_INFO_VLEN(ifp, itp->ctt_info) !=
 	    LCTF_INFO_VLEN(ofp, otp->ctt_info))
 		return (B_TRUE);
 
-	(void) ctf_get_ctt_size(ifp, itp, NULL, &iincr);
-	(void) ctf_get_ctt_size(ofp, otp, NULL, &oincr);
-	iep = (const ctf_enum_t *)((uintptr_t)itp + iincr);
-	oep = (const ctf_enum_t *)((uintptr_t)otp + oincr);
+	if (CTF_TYPE_TO_INDEX(iid) > ifp->ctf_typemax) {
+		ctf_dtdef_t *dtd = ctf_dtd_lookup(ifp, iid);
 
-	for (n = LCTF_INFO_VLEN(ifp, itp->ctt_info); n != 0;
-	    n--, iep++, oep++) {
-		const char *ie = ctf_strptr(ifp, iep->cte_name);
-		const char *oe = ctf_strptr(ofp, oep->cte_name);
+		VERIFY(dtd != NULL);
+		idmd = ctf_list_next(&dtd->dtd_u.dtu_members);
+	} else {
+		(void) ctf_get_ctt_size(ifp, itp, NULL, &incr);
+		iep = (const ctf_enum_t *)((uintptr_t)itp + incr);
+	}
+
+	if (CTF_TYPE_TO_INDEX(oid) > ofp->ctf_typemax) {
+		ctf_dtdef_t *dtd = ctf_dtd_lookup(ofp, oid);
+
+		VERIFY(dtd != NULL);
+		odmd = ctf_list_next(&dtd->dtd_u.dtu_members);
+	} else {
+		(void) ctf_get_ctt_size(ofp, otp, NULL, &incr);
+		oep = (const ctf_enum_t *)((uintptr_t)otp + incr);
+	}
+
+	for (n = LCTF_INFO_VLEN(ifp, itp->ctt_info); n != 0; n--) {
+		const char *ie, *oe;
+		int ival, oval;
+
+		if (idmd != NULL) {
+			ie = idmd->dmd_name;
+			ival = idmd->dmd_value;
+			idmd = ctf_list_next(idmd);
+		} else {
+			ie = ctf_strptr(ifp, iep->cte_name);
+			ival = iep->cte_value;
+			iep++;
+		}
+
+		if (odmd != NULL) {
+			oe = odmd->dmd_name;
+			oval = odmd->dmd_value;
+			odmd = ctf_list_next(odmd);
+		} else {
+			oe = ctf_strptr(ofp, oep->cte_name);
+			oval = oep->cte_value;
+			oep++;
+		}
 
 		if (ie != oe && strcmp(ie, oe) != 0)
 			return (B_TRUE);
 
-		if (iep->cte_value != oep->cte_value)
+		if (ival != oval)
 			return (B_TRUE);
 	}
 
@@ -599,18 +649,16 @@ ctf_diff_type(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
 	    ikind != CTF_K_FORWARD && okind != CTF_K_FORWARD)
 		return (B_TRUE);
 
-	/* Check names inline */
-	iname = ctf_strptr(ifp, itp->ctt_name);
-	oname = ctf_strptr(ofp, otp->ctt_name);
+	/* Check names inline; anonymous types compare as the empty name. */
+	if ((iname = ctf_type_rname(ifp, itp, iid)) == NULL)
+		iname = "";
+	if ((oname = ctf_type_rname(ofp, otp, oid)) == NULL)
+		oname = "";
 
-	if (iname != oname) {
-		if (iname == NULL || oname == NULL)
+	if (iname != oname && strcmp(iname, oname) != 0) {
+		if (ikind != okind || ikind != CTF_K_INTEGER ||
+		    (cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) == 0)
 			return (B_TRUE);
-		if (strcmp(iname, oname) != 0) {
-			if (ikind != okind || ikind != CTF_K_INTEGER ||
-			    (cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) == 0)
-				return (B_TRUE);
-		}
 	}
 
 	/* Handle forward declarations inline */
@@ -640,7 +688,7 @@ ctf_diff_type(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
 		ret = ctf_diff_union(cds, ifp, itp, iid, ofp, otp, oid);
 		break;
 	case CTF_K_ENUM:
-		ret = ctf_diff_enum(ifp, itp, ofp, otp);
+		ret = ctf_diff_enum(ifp, itp, iid, ofp, otp, oid);
 		break;
 	case CTF_K_TYPEDEF:
 		ret = ctf_diff_typedef(cds, oifp, iid, oofp, oid);
@@ -756,7 +804,8 @@ ctf_diff_check_chain(ctf_diff_t *cds, ctf_strhash_t *hp, uint_t kind,
 }
 
 /*
- * Get the kind, vlen (member count), and name for a type.
+ * Get the kind, vlen (member count), and name for a type.  Anonymous types
+ * yield the empty name.
  */
 static void
 ctf_diff_get_type_info(ctf_file_t *fp, ctf_id_t id, uint_t *kindp,
@@ -774,7 +823,8 @@ ctf_diff_get_type_info(ctf_file_t *fp, ctf_id_t id, uint_t *kindp,
 	}
 	*kindp = LCTF_INFO_KIND(ofp, tp->ctt_info);
 	*vlenp = LCTF_INFO_VLEN(ofp, tp->ctt_info);
-	*namep = ctf_strptr(ofp, tp->ctt_name);
+	if ((*namep = ctf_type_rname(ofp, tp, id)) == NULL)
+		*namep = "";
 }
 
 /*
@@ -793,14 +843,14 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 	uint8_t *kindcache = NULL;
 
 	istart = 1;
-	iend = cds->cds_ifp->ctf_typemax;
+	iend = ctf_dyn_typemax(cds->cds_ifp);
 	if (cds->cds_ifp->ctf_flags & LCTF_CHILD) {
 		istart += CTF_CHILD_START;
 		iend += CTF_CHILD_START;
 	}
 
 	jstart = 1;
-	jend = cds->cds_ofp->ctf_typemax;
+	jend = ctf_dyn_typemax(cds->cds_ofp);
 	if (cds->cds_ofp->ctf_flags & LCTF_CHILD) {
 		jstart += CTF_CHILD_START;
 		jend += CTF_CHILD_START;
@@ -970,7 +1020,7 @@ ctf_diff_pass2(ctf_diff_t *cds)
 	int i, start, end;
 
 	start = 0x1;
-	end = cds->cds_ofp->ctf_typemax;
+	end = ctf_dyn_typemax(cds->cds_ofp);
 	if (cds->cds_ofp->ctf_flags & LCTF_CHILD) {
 		start += CTF_CHILD_START;
 		end += CTF_CHILD_START;
@@ -1000,8 +1050,13 @@ ctf_diff_init(ctf_file_t *ifp, ctf_file_t *ofp, ctf_diff_t **cdsp)
 	cds->cds_ifp = ifp;
 	cds->cds_ofp = ofp;
 
-	fsize = sizeof (ctf_id_t) * ifp->ctf_typemax;
-	rsize = sizeof (ctf_id_t) * ofp->ctf_typemax;
+	/*
+	 * The mapping tables must cover dynamic types, and a writable
+	 * container may grow while the diff results are consulted; size from
+	 * the current limit and free using the stored sizes.
+	 */
+	fsize = sizeof (ctf_id_t) * ctf_dyn_typemax(ifp);
+	rsize = sizeof (ctf_id_t) * ctf_dyn_typemax(ofp);
 	if (ifp->ctf_flags & LCTF_CHILD)
 		fsize += CTF_CHILD_START * sizeof (ctf_id_t);
 	if (ofp->ctf_flags & LCTF_CHILD)
@@ -1072,20 +1127,12 @@ void
 ctf_diff_fini(ctf_diff_t *cds)
 {
 	ctf_diff_guess_t *cdg;
-	size_t fsize, rsize;
 
 	if (cds == NULL)
 		return;
 
 	cds->cds_ifp->ctf_refcnt--;
 	cds->cds_ofp->ctf_refcnt--;
-
-	fsize = sizeof (ctf_id_t) * cds->cds_ifp->ctf_typemax;
-	rsize = sizeof (ctf_id_t) * cds->cds_ofp->ctf_typemax;
-	if (cds->cds_ifp->ctf_flags & LCTF_CHILD)
-		fsize += CTF_CHILD_START * sizeof (ctf_id_t);
-	if (cds->cds_ofp->ctf_flags & LCTF_CHILD)
-		rsize += CTF_CHILD_START * sizeof (ctf_id_t);
 
 	if (cds->cds_ifuncs != NULL)
 		ctf_free(cds->cds_ifuncs,
