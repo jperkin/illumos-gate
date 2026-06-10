@@ -3769,15 +3769,6 @@ ctf_dwarf_convert_batch(uint_t start, uint_t end, int fd, uint_t nthrs,
 out:
 	ctf_close(fpprev);
 	ctf_dwarf_symhash_free(symhash);
-	if (symtmpl != NULL && symtmpl->ctf_symvalid != NULL) {
-		ctf_free(symtmpl->ctf_symvalid, symtmpl->ctf_nsyms);
-		symtmpl->ctf_symvalid = NULL;
-	}
-	if (symtmpl != NULL && symtmpl->ctf_symfile != NULL) {
-		ctf_free((void *)symtmpl->ctf_symfile,
-		    symtmpl->ctf_nsyms * sizeof (const char *));
-		symtmpl->ctf_symfile = NULL;
-	}
 	ctf_close(symtmpl);
 	return (err);
 }

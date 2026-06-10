@@ -867,6 +867,9 @@ ctf_symtab_iter(ctf_file_t *fp, ctf_symtab_f func, void *arg)
  * CTF_SV_OBJECT/CTF_SV_FUNC for valid symbols, or CTF_SV_FILE for STT_FILE
  * entries.  Callers can then replace per-symbol ctf_sym_valid() calls
  * (2 strcmp each) with a single byte lookup.
+ *
+ * The container owns the arrays and ctf_close() frees them.  Containers
+ * that borrow the pointers must not set LCTF_SV_OWNED.
  */
 void
 ctf_symvalid_create(ctf_file_t *fp)
@@ -931,4 +934,5 @@ ctf_symvalid_create(ctf_file_t *fp)
 
 	fp->ctf_symvalid = sv;
 	fp->ctf_symfile = sf;
+	fp->ctf_flags |= LCTF_SV_OWNED;
 }

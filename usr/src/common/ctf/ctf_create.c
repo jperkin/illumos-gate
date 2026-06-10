@@ -773,10 +773,11 @@ ctf_update(ctf_file_t *fp)
 }
 
 /*
- * Variant of ctf_update() that skips the symtab walk.  Used by callers that
- * serialise types only - no function or object definitions have been added
- * yet - so walking the symtab is wasted work.  Setting nsyms to zero makes
- * ctf_update() skip both symtab loops (sizing and serialization).
+ * Variant of ctf_update() that serialises types only.  Setting nsyms to zero
+ * makes ctf_update() skip both symtab loops (sizing and serialization).  Any
+ * pending function or object definitions are carried over to the updated
+ * container, unserialized, for a later full ctf_update() or for direct
+ * consumption by the merge code.
  */
 int
 ctf_update_nosyms(ctf_file_t *fp)

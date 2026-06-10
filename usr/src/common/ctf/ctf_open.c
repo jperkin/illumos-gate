@@ -968,6 +968,15 @@ ctf_close(ctf_file_t *fp)
 	if (fp->ctf_sxlate != NULL)
 		ctf_free(fp->ctf_sxlate, sizeof (uint_t) * fp->ctf_nsyms);
 
+	if (fp->ctf_flags & LCTF_SV_OWNED) {
+		if (fp->ctf_symvalid != NULL)
+			ctf_free(fp->ctf_symvalid, fp->ctf_nsyms);
+		if (fp->ctf_symfile != NULL) {
+			ctf_free((void *)fp->ctf_symfile,
+			    sizeof (const char *) * fp->ctf_nsyms);
+		}
+	}
+
 	if (fp->ctf_txlate != NULL) {
 		ctf_free(fp->ctf_txlate,
 		    sizeof (uint_t) * (fp->ctf_typemax + 1));

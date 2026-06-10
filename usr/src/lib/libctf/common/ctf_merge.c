@@ -1900,6 +1900,10 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 				cm.cm_src->ctf_strtab.cts_data = NULL;
 				cm.cm_out->ctf_flags |= LCTF_MMAP;
 			}
+			if (cm.cm_src->ctf_flags & LCTF_SV_OWNED) {
+				cm.cm_src->ctf_flags &= ~LCTF_SV_OWNED;
+				cm.cm_out->ctf_flags |= LCTF_SV_OWNED;
+			}
 		} else if (cm.cm_out->ctf_symtab.cts_data == NULL) {
 			ctf_file_t *symtmpl;
 

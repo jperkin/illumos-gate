@@ -278,6 +278,12 @@ struct ctf_file {
  * and libctf should free it with ctf_data_free() on close.
  */
 #define	LCTF_FREE	0x0010
+/*
+ * This container owns the ctf_symvalid and ctf_symfile arrays and
+ * ctf_close() should free them.  Containers that borrow the arrays copy
+ * the pointers but not this flag.
+ */
+#define	LCTF_SV_OWNED	0x0020
 
 /*
  * Precomputed symbol validity values stored in ctf_symvalid[].  Zero means
