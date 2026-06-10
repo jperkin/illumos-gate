@@ -887,6 +887,30 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 				goto err;
 		}
 
+		/*
+		 * With CTF_DIFF_F_IGNORE_INTNAMES, two integers may be
+		 * equivalent despite differing names, but the name-keyed
+		 * hash above only yields same-named candidates.  Scan the
+		 * kind cache for the remaining integer candidates.  In the
+		 * self case only types preceding i have been cached.
+		 */
+		if (diff == B_TRUE && ikind == CTF_K_INTEGER &&
+		    (cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) != 0) {
+			int j;
+			int jmax = (self == B_TRUE) ? i - 1 : jend;
+
+			for (j = jstart; j <= jmax; j++) {
+				if (kindcache[j - jstart] != CTF_K_INTEGER)
+					continue;
+				diff = ctf_diff_try_candidate(cds, i, j,
+				    &matchid);
+				if (diff == CTF_ERR)
+					goto err;
+				if (diff == B_FALSE)
+					break;
+			}
+		}
+
 		/* Call the callback at this point */
 		if (diff == B_TRUE) {
 			cds->cds_forward[TINDEX(i)] = CTF_ERR;
