@@ -1496,6 +1496,46 @@ ctf_merge_dsd_append(ctf_file_t *fp, ulong_t idx, ctf_id_t tid, uint_t argc,
 }
 
 /*
+ * Build the object and function name hashes used to match symbols against a
+ * merge input's maps.  On failure any partially constructed state is
+ * destroyed; on success the caller must destroy both hashes.
+ */
+static int
+ctf_merge_symhash_create(ctf_merge_input_t *cmi, ctf_strhash_t *objhash,
+    ctf_strhash_t *funchash)
+{
+	ctf_merge_objmap_t *cmo;
+	ctf_merge_funcmap_t *cmf;
+	size_t nobj = 0, nfunc = 0;
+
+	bzero(objhash, sizeof (ctf_strhash_t));
+	bzero(funchash, sizeof (ctf_strhash_t));
+
+	for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
+	    cmo = list_next(&cmi->cmi_omap, cmo))
+		nobj++;
+	for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
+	    cmf = list_next(&cmi->cmi_fmap, cmf))
+		nfunc++;
+
+	if (ctf_strhash_create(objhash, nobj) != 0 ||
+	    ctf_strhash_create(funchash, nfunc) != 0) {
+		ctf_strhash_destroy(objhash);
+		ctf_strhash_destroy(funchash);
+		return (ENOMEM);
+	}
+
+	for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
+	    cmo = list_next(&cmi->cmi_omap, cmo))
+		(void) ctf_strhash_insert(objhash, cmo->cmo_name, cmo);
+	for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
+	    cmf = list_next(&cmi->cmi_fmap, cmf))
+		(void) ctf_strhash_insert(funchash, cmf->cmf_name, cmf);
+
+	return (0);
+}
+
+/*
  * For each symbol, try and find a match. We will attempt to find an exact
  * match; however, we will settle for a fuzzy match in general. There is one
  * case where we will not opt to use a fuzzy match, which is when performing the
@@ -1691,35 +1731,14 @@ ctf_merge_merge(ctf_merge_t *cmh, ctf_file_t **outp)
 
 	ctf_dprintf("merging symbols and the like\n");
 	if (cmh->cmh_msyms == B_TRUE) {
-		ctf_strhash_t obj_hash = { 0 }, func_hash = { 0 };
+		ctf_strhash_t obj_hash, func_hash;
 		ctf_merge_symbol_arg_t arg;
-		ctf_merge_objmap_t *cmo;
-		ctf_merge_funcmap_t *cmf;
-		size_t nobj = 0, nfunc = 0;
 
-		for (cmo = list_head(&final->cmi_omap); cmo != NULL;
-		    cmo = list_next(&final->cmi_omap, cmo))
-			nobj++;
-		for (cmf = list_head(&final->cmi_fmap); cmf != NULL;
-		    cmf = list_next(&final->cmi_fmap, cmf))
-			nfunc++;
-
-		if (ctf_strhash_create(&obj_hash, nobj) != 0 ||
-		    ctf_strhash_create(&func_hash, nfunc) != 0) {
-			ctf_strhash_destroy(&obj_hash);
-			ctf_strhash_destroy(&func_hash);
+		if ((err = ctf_merge_symhash_create(final, &obj_hash,
+		    &func_hash)) != 0) {
 			ctf_close(out);
-			return (ENOMEM);
+			return (err);
 		}
-
-		for (cmo = list_head(&final->cmi_omap); cmo != NULL;
-		    cmo = list_next(&final->cmi_omap, cmo))
-			(void) ctf_strhash_insert(&obj_hash,
-			    cmo->cmo_name, cmo);
-		for (cmf = list_head(&final->cmi_fmap); cmf != NULL;
-		    cmf = list_next(&final->cmi_fmap, cmf))
-			(void) ctf_strhash_insert(&func_hash,
-			    cmf->cmf_name, cmf);
 
 		arg.cmsa_objmap = &final->cmi_omap;
 		arg.cmsa_funcmap = &final->cmi_fmap;
@@ -1927,31 +1946,10 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 		} else {
 			ctf_merge_symbol_arg_t arg;
 			ctf_strhash_t obj_hash, func_hash;
-			size_t nobj = 0, nfunc = 0;
 
-			for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
-			    cmo = list_next(&cmi->cmi_omap, cmo))
-				nobj++;
-			for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
-			    cmf = list_next(&cmi->cmi_fmap, cmf))
-				nfunc++;
-
-			if (ctf_strhash_create(&obj_hash, nobj) != 0 ||
-			    ctf_strhash_create(&func_hash, nfunc) != 0) {
-				ctf_strhash_destroy(&obj_hash);
-				ctf_strhash_destroy(&func_hash);
-				ret = ENOMEM;
+			if ((ret = ctf_merge_symhash_create(cmi, &obj_hash,
+			    &func_hash)) != 0)
 				goto err;
-			}
-
-			for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
-			    cmo = list_next(&cmi->cmi_omap, cmo))
-				(void) ctf_strhash_insert(&obj_hash,
-				    cmo->cmo_name, cmo);
-			for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
-			    cmf = list_next(&cmi->cmi_fmap, cmf))
-				(void) ctf_strhash_insert(&func_hash,
-				    cmf->cmf_name, cmf);
 
 			arg.cmsa_objmap = &cmi->cmi_omap;
 			arg.cmsa_funcmap = &cmi->cmi_fmap;
