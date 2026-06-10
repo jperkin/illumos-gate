@@ -1452,6 +1452,50 @@ ctf_merge_symbol_match(const char *ctf_file, const char *ctf_name,
 }
 
 /*
+ * Append a function or object mapping to the output container's pending
+ * symbol definitions.  ctf_update() serializes the list with a single
+ * ordered walk of the symbol table, so entries must be appended in
+ * ascending symbol index order.
+ */
+static int
+ctf_merge_dsd_append(ctf_file_t *fp, ulong_t idx, ctf_id_t tid, uint_t argc,
+    const ctf_id_t *args, uint_t flags)
+{
+	ctf_dsdef_t *dsd, *tail;
+
+	tail = ctf_list_prev(&fp->ctf_dsdefs);
+	VERIFY(tail == NULL || tail->dsd_symidx < idx);
+
+	dsd = ctf_alloc(sizeof (ctf_dsdef_t));
+	if (dsd == NULL)
+		return (ENOMEM);
+
+	dsd->dsd_symidx = idx;
+	dsd->dsd_tid = tid;
+	dsd->dsd_nargs = argc;
+	if (flags & CTF_FUNC_VARARG)
+		dsd->dsd_nargs++;
+	if (dsd->dsd_nargs != 0) {
+		dsd->dsd_argc = ctf_alloc(sizeof (ctf_id_t) * dsd->dsd_nargs);
+		if (dsd->dsd_argc == NULL) {
+			ctf_free(dsd, sizeof (ctf_dsdef_t));
+			return (ENOMEM);
+		}
+		if (argc != 0)
+			bcopy(args, dsd->dsd_argc, sizeof (ctf_id_t) * argc);
+		if (flags & CTF_FUNC_VARARG)
+			dsd->dsd_argc[argc] = 0;
+	} else {
+		dsd->dsd_argc = NULL;
+	}
+
+	ctf_list_append(&fp->ctf_dsdefs, dsd);
+	fp->ctf_flags |= LCTF_DIRTY;
+
+	return (0);
+}
+
+/*
  * For each symbol, try and find a match. We will attempt to find an exact
  * match; however, we will settle for a fuzzy match in general. There is one
  * case where we will not opt to use a fuzzy match, which is when performing the
@@ -1464,6 +1508,7 @@ static int
 ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
     const char *name, boolean_t primary, void *arg)
 {
+	int err;
 	uint_t type, bind;
 	ctf_merge_symbol_arg_t *csa = arg;
 	ctf_file_t *fp = csa->cmsa_out;
@@ -1476,7 +1521,6 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 
 	if (type == STT_OBJECT) {
 		ctf_merge_objmap_t *cmo, *match = NULL;
-		ctf_dsdef_t *dsd;
 		ctf_strhash_elem_t *elem;
 
 		for (elem = ctf_strhash_lookup(csa->cmsa_obj_hash, name);
@@ -1503,20 +1547,13 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 			return (0);
 		}
 
-		dsd = ctf_alloc(sizeof (ctf_dsdef_t));
-		if (dsd == NULL)
-			return (ENOMEM);
-		dsd->dsd_symidx = idx;
-		dsd->dsd_tid = match->cmo_tid;
-		dsd->dsd_nargs = 0;
-		dsd->dsd_argc = NULL;
-		ctf_list_append(&fp->ctf_dsdefs, dsd);
-		fp->ctf_flags |= LCTF_DIRTY;
+		if ((err = ctf_merge_dsd_append(fp, idx, match->cmo_tid,
+		    0, NULL, 0)) != 0)
+			return (err);
 		ctf_dprintf("mapped object into output %s/%s->%ld\n", file,
 		    name, match->cmo_tid);
 	} else {
 		ctf_merge_funcmap_t *cmf, *match = NULL;
-		ctf_dsdef_t *dsd;
 		ctf_strhash_elem_t *elem;
 
 		for (elem = ctf_strhash_lookup(csa->cmsa_func_hash, name);
@@ -1543,30 +1580,9 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 			return (0);
 		}
 
-		dsd = ctf_alloc(sizeof (ctf_dsdef_t));
-		if (dsd == NULL)
-			return (ENOMEM);
-		dsd->dsd_symidx = idx;
-		dsd->dsd_tid = match->cmf_rtid;
-		dsd->dsd_nargs = match->cmf_argc;
-		if (match->cmf_flags & CTF_FUNC_VARARG)
-			dsd->dsd_nargs++;
-		if (dsd->dsd_nargs != 0) {
-			dsd->dsd_argc = ctf_alloc(
-			    sizeof (ctf_id_t) * dsd->dsd_nargs);
-			if (dsd->dsd_argc == NULL) {
-				ctf_free(dsd, sizeof (ctf_dsdef_t));
-				return (ENOMEM);
-			}
-			bcopy(match->cmf_args, dsd->dsd_argc,
-			    sizeof (ctf_id_t) * match->cmf_argc);
-			if (match->cmf_flags & CTF_FUNC_VARARG)
-				dsd->dsd_argc[match->cmf_argc] = 0;
-		} else {
-			dsd->dsd_argc = NULL;
-		}
-		ctf_list_append(&fp->ctf_dsdefs, dsd);
-		fp->ctf_flags |= LCTF_DIRTY;
+		if ((err = ctf_merge_dsd_append(fp, idx, match->cmf_rtid,
+		    match->cmf_argc, match->cmf_args, match->cmf_flags)) != 0)
+			return (err);
 		ctf_dprintf("mapped function into output %s/%s\n", file,
 		    name);
 	}
@@ -1882,64 +1898,32 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 
 		if (cm.cm_out->ctf_symvalid != NULL) {
 			/*
-			 * Batch mode: the omap/fmap were built from the
-			 * same symtab now attached to cm_out, so we can
-			 * insert dsds directly by index, bypassing the
-			 * full symtab walk and name-based matching.
+			 * Batch mode: the omap and fmap were built from the
+			 * same symtab now attached to cm_out, so the dsds can
+			 * be built directly by index, bypassing the full
+			 * symtab walk and name-based matching.  Both maps are
+			 * in ascending symbol index order; interleave them so
+			 * that the dsd list is too.
 			 */
-			for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
-			    cmo = list_next(&cmi->cmi_omap, cmo)) {
-				ctf_dsdef_t *dsd;
-
-				dsd = ctf_alloc(sizeof (ctf_dsdef_t));
-				if (dsd == NULL) {
-					ret = ENOMEM;
-					goto err;
-				}
-				dsd->dsd_symidx = cmo->cmo_idx;
-				dsd->dsd_tid = cmo->cmo_tid;
-				dsd->dsd_nargs = 0;
-				dsd->dsd_argc = NULL;
-				ctf_list_append(&cm.cm_out->ctf_dsdefs, dsd);
-			}
-
-			for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
-			    cmf = list_next(&cmi->cmi_fmap, cmf)) {
-				ctf_dsdef_t *dsd;
-
-				dsd = ctf_alloc(sizeof (ctf_dsdef_t));
-				if (dsd == NULL) {
-					ret = ENOMEM;
-					goto err;
-				}
-				dsd->dsd_symidx = cmf->cmf_idx;
-				dsd->dsd_tid = cmf->cmf_rtid;
-				dsd->dsd_nargs = cmf->cmf_argc;
-				if (cmf->cmf_flags & CTF_FUNC_VARARG)
-					dsd->dsd_nargs++;
-				if (dsd->dsd_nargs != 0) {
-					dsd->dsd_argc = ctf_alloc(
-					    sizeof (ctf_id_t) *
-					    dsd->dsd_nargs);
-					if (dsd->dsd_argc == NULL) {
-						ctf_free(dsd,
-						    sizeof (ctf_dsdef_t));
-						ret = ENOMEM;
-						goto err;
-					}
-					bcopy(cmf->cmf_args, dsd->dsd_argc,
-					    sizeof (ctf_id_t) *
-					    cmf->cmf_argc);
-					if (cmf->cmf_flags & CTF_FUNC_VARARG)
-						dsd->dsd_argc[cmf->cmf_argc] =
-						    0;
+			cmo = list_head(&cmi->cmi_omap);
+			cmf = list_head(&cmi->cmi_fmap);
+			while (cmo != NULL || cmf != NULL) {
+				if (cmf == NULL || (cmo != NULL &&
+				    cmo->cmo_idx < cmf->cmf_idx)) {
+					ret = ctf_merge_dsd_append(cm.cm_out,
+					    cmo->cmo_idx, cmo->cmo_tid,
+					    0, NULL, 0);
+					cmo = list_next(&cmi->cmi_omap, cmo);
 				} else {
-					dsd->dsd_argc = NULL;
+					ret = ctf_merge_dsd_append(cm.cm_out,
+					    cmf->cmf_idx, cmf->cmf_rtid,
+					    cmf->cmf_argc, cmf->cmf_args,
+					    cmf->cmf_flags);
+					cmf = list_next(&cmi->cmi_fmap, cmf);
 				}
-				ctf_list_append(&cm.cm_out->ctf_dsdefs, dsd);
+				if (ret != 0)
+					goto err;
 			}
-
-			cm.cm_out->ctf_flags |= LCTF_DIRTY;
 		} else {
 			ctf_merge_symbol_arg_t arg;
 			ctf_strhash_t obj_hash, func_hash;
