@@ -279,13 +279,14 @@ struct ctf_file {
 #define	LCTF_FREE	0x0010
 
 /*
- * Precomputed symbol validity values stored in ctf_symvalid[].
- * Zero means the symbol should be skipped; non-zero encodes the type.
+ * Precomputed symbol validity values stored in ctf_symvalid[].  Zero means
+ * the symbol should be skipped; valid entries store the ELF symbol type so
+ * that they may be compared against STT_OBJECT and STT_FUNC directly.
  */
 #define	CTF_SV_SKIP	0
-#define	CTF_SV_OBJECT	1
-#define	CTF_SV_FUNC	2
-#define	CTF_SV_FILE	3
+#define	CTF_SV_OBJECT	STT_OBJECT
+#define	CTF_SV_FUNC	STT_FUNC
+#define	CTF_SV_FILE	STT_FILE
 
 #define	CTF_ELF_SCN_NAME	".SUNW_ctf"
 
