@@ -100,6 +100,19 @@ struct ctf_diff {
 #define	TINDEX(tid) (tid - 1)
 
 /*
+ * Candidate hash values pack the type ID, kind, and member count (vlen) so
+ * that the candidate scan needs no side lookups.  CTF v2 type IDs, including
+ * the child bit, fit in 16 bits, kinds in 6, and vlen in 10, which together
+ * fit a 32-bit uintptr_t.
+ */
+#define	CDIFF_VAL_PACK(id, kind, vlen)					\
+	((void *)(uintptr_t)((uint32_t)(id) |				\
+	((uint32_t)(kind) << 16) | ((uint32_t)(vlen) << 22)))
+#define	CDIFF_VAL_ID(v)		((ctf_id_t)((uintptr_t)(v) & 0xffff))
+#define	CDIFF_VAL_KIND(v)	((uint_t)(((uintptr_t)(v) >> 16) & 0x3f))
+#define	CDIFF_VAL_VLEN(v)	((uint_t)(((uintptr_t)(v) >> 22) & 0x3ff))
+
+/*
  * Team Diff
  */
 static int ctf_diff_type(ctf_diff_t *, ctf_file_t *, ctf_id_t, ctf_file_t *,
@@ -696,10 +709,11 @@ ctf_diff_try_candidate(ctf_diff_t *cds, ctf_id_t i, ctf_id_t j,
 }
 
 /*
- * Iterate over same-named candidates for source type i, filtering by kind
- * and member count (vlen) using pre-cached arrays for O(1) lookup.  The vlen
- * filter is effective for anonymous types, which all share the empty name:
- * two anonymous structs with different member counts cannot be structurally
+ * Iterate over candidates sharing source type i's name and the given kind
+ * (the candidate hash is salted by kind), filtering by member count (vlen)
+ * from the packed hash value.  The kind check guards against hash collisions
+ * across salts.  The vlen filter is effective for anonymous types: two
+ * anonymous structs with different member counts cannot be structurally
  * equal and are rejected without recursive comparison.
  *
  * Pass ivlen == (uint_t)-1 to disable the vlen filter (used for cross-kind
@@ -709,20 +723,20 @@ ctf_diff_try_candidate(ctf_diff_t *cds, ctf_id_t i, ctf_id_t j,
  * or CTF_ERR on error.
  */
 static int
-ctf_diff_check_chain(ctf_diff_t *cds, ctf_strhash_t *hp,
-    uint_t kind, const char *name, ctf_id_t i, ctf_id_t *matchid,
-    uint8_t *kindcache, uint_t *vlencache, uint_t ivlen, int jstart)
+ctf_diff_check_chain(ctf_diff_t *cds, ctf_strhash_t *hp, uint_t kind,
+    const char *name, ctf_id_t i, ctf_id_t *matchid, uint_t ivlen)
 {
 	ctf_strhash_elem_t *elem;
 	int ret;
 
-	for (elem = ctf_strhash_lookup(hp, name, 0); elem != NULL;
+	for (elem = ctf_strhash_lookup(hp, name, kind); elem != NULL;
 	    elem = ctf_strhash_next(hp, elem)) {
-		ctf_id_t j = (ctf_id_t)(uintptr_t)elem->h_value;
+		ctf_id_t j = CDIFF_VAL_ID(elem->h_value);
 
-		if (kindcache[j - jstart] != kind)
+		if (CDIFF_VAL_KIND(elem->h_value) != kind)
 			continue;
-		if (ivlen != (uint_t)-1 && vlencache[j - jstart] != ivlen)
+		if (ivlen != (uint_t)-1 &&
+		    CDIFF_VAL_VLEN(elem->h_value) != ivlen)
 			continue;
 		if (cds->cds_reverse[TINDEX(j)] == i) {
 			*matchid = j;
@@ -777,7 +791,6 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 	ctf_strhash_t th;
 	size_t njtypes;
 	uint8_t *kindcache = NULL;
-	uint_t *vlencache = NULL;
 
 	istart = 1;
 	iend = cds->cds_ifp->ctf_typemax;
@@ -794,10 +807,13 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 	}
 
 	/*
-	 * Build hash table of destination types for fast candidate lookup.
-	 * For the self-diff case, we start with an empty hash and
-	 * incrementally insert types as we process them.  For the non-self
-	 * case, we pre-populate with all destination types.
+	 * Build a hash table of destination types for fast candidate lookup,
+	 * keyed by name and salted by kind: anonymous types, which make up
+	 * most of a container, then chain per kind rather than all together.
+	 * Each value packs the type ID, kind, and vlen so the candidate scan
+	 * needs no side lookups.  For the self-diff case, we start with an
+	 * empty hash and incrementally insert types as we process them.  For
+	 * the non-self case, we pre-populate with all destination types.
 	 */
 	njtypes = (jend >= jstart) ? (jend - jstart + 1) : 0;
 	if (self == B_TRUE)
@@ -806,12 +822,14 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 	if (ctf_strhash_create(&th, njtypes) != 0)
 		return (CTF_ERR);
 
-	if (njtypes > 0) {
+	/*
+	 * The kind cache exists only for the IGNORE_INTNAMES fallback below,
+	 * which must scan integer candidates regardless of name.
+	 */
+	if ((cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) != 0 &&
+	    njtypes > 0) {
 		kindcache = ctf_alloc(njtypes);
 		if (kindcache == NULL)
-			goto err;
-		vlencache = ctf_alloc(njtypes * sizeof (uint_t));
-		if (vlencache == NULL)
 			goto err;
 	}
 
@@ -823,10 +841,10 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 
 			ctf_diff_get_type_info(cds->cds_ofp, j,
 			    &jkind, &jvlen, &jname);
-			kindcache[j - jstart] = (uint8_t)jkind;
-			vlencache[j - jstart] = jvlen;
-			(void) ctf_strhash_insert(&th, jname, 0,
-			    (void *)(uintptr_t)j);
+			if (kindcache != NULL)
+				kindcache[j - jstart] = (uint8_t)jkind;
+			(void) ctf_strhash_insert(&th, jname, jkind,
+			    CDIFF_VAL_PACK(j, jkind, jvlen));
 		}
 	}
 
@@ -860,29 +878,26 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 		 * - Otherwise: check only the exact kind
 		 */
 		diff = ctf_diff_check_chain(cds, &th, ikind, iname, i,
-		    &matchid, kindcache, vlencache, ivlen, jstart);
+		    &matchid, ivlen);
 		if (diff == CTF_ERR)
 			goto err;
 
 		if (diff == B_TRUE && ikind == CTF_K_FORWARD) {
 			diff = ctf_diff_check_chain(cds, &th, CTF_K_STRUCT,
-			    iname, i, &matchid, kindcache, vlencache,
-			    (uint_t)-1, jstart);
+			    iname, i, &matchid, (uint_t)-1);
 			if (diff == CTF_ERR)
 				goto err;
 			if (diff == B_TRUE) {
 				diff = ctf_diff_check_chain(cds, &th,
 				    CTF_K_UNION, iname, i, &matchid,
-				    kindcache, vlencache,
-				    (uint_t)-1, jstart);
+				    (uint_t)-1);
 				if (diff == CTF_ERR)
 					goto err;
 			}
 		} else if (diff == B_TRUE &&
 		    (ikind == CTF_K_STRUCT || ikind == CTF_K_UNION)) {
 			diff = ctf_diff_check_chain(cds, &th, CTF_K_FORWARD,
-			    iname, i, &matchid, kindcache, vlencache,
-			    (uint_t)-1, jstart);
+			    iname, i, &matchid, (uint_t)-1);
 			if (diff == CTF_ERR)
 				goto err;
 		}
@@ -926,26 +941,22 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 		 * subsequent types can find earlier ones.
 		 */
 		if (self == B_TRUE) {
-			(void) ctf_strhash_insert(&th, iname, 0,
-			    (void *)(uintptr_t)i);
-			kindcache[i - istart] = (uint8_t)ikind;
-			vlencache[i - istart] = ivlen;
+			(void) ctf_strhash_insert(&th, iname, ikind,
+			    CDIFF_VAL_PACK(i, ikind, ivlen));
+			if (kindcache != NULL)
+				kindcache[i - istart] = (uint8_t)ikind;
 		}
 	}
 
 	ctf_strhash_destroy(&th);
 	if (kindcache != NULL)
 		ctf_free(kindcache, njtypes);
-	if (vlencache != NULL)
-		ctf_free(vlencache, njtypes * sizeof (uint_t));
 	return (0);
 
 err:
 	ctf_strhash_destroy(&th);
 	if (kindcache != NULL)
 		ctf_free(kindcache, njtypes);
-	if (vlencache != NULL)
-		ctf_free(vlencache, njtypes * sizeof (uint_t));
 	return (CTF_ERR);
 }
 
