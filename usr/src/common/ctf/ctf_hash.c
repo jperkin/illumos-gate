@@ -218,12 +218,11 @@ ctf_hash_dump(const char *tag, ctf_hash_t *hp, ctf_file_t *fp)
  * performed.  The caller must provide an upper bound on the number of
  * insertions at creation time.
  *
- * Lookup returns the first element in the matching hash chain.  Since
- * multiple names may hash to the same bucket, the caller must walk the chain
- * (via ctf_strhash_next) and compare h_name to filter for the desired key.
  * Multiple entries with the same name are permitted, allowing the table to
  * function as a multi-map (e.g. a struct and its forward declaration sharing
- * the same name).
+ * the same name).  ctf_strhash_lookup() returns the first element whose key
+ * matches the given name, and ctf_strhash_next() the subsequent ones; both
+ * filter the hash chain by key, so callers see only matching entries.
  */
 int
 ctf_strhash_create(ctf_strhash_t *hp, ulong_t nelems)
@@ -294,11 +293,15 @@ ctf_strhash_insert(ctf_strhash_t *hp, const char *name, void *value)
 	if (hp->h_free >= hp->h_nelems)
 		return (EOVERFLOW);
 
+	if (name == NULL)
+		name = "";
+
 	hep = &hp->h_chains[hp->h_free];
 	hep->h_name = name;
 	hep->h_value = value;
+	hep->h_hash = ctf_strhash_compute(name);
 
-	h = ctf_strhash_compute(name != NULL ? name : "") % hp->h_nbuckets;
+	h = hep->h_hash % hp->h_nbuckets;
 	hep->h_next = hp->h_buckets[h];
 	hp->h_buckets[h] = hp->h_free++;
 
@@ -314,20 +317,34 @@ ctf_strhash_lookup(ctf_strhash_t *hp, const char *name)
 	if (hp->h_buckets == NULL)
 		return (NULL);
 
-	h = ctf_strhash_compute(name != NULL ? name : "") % hp->h_nbuckets;
-	i = hp->h_buckets[h];
+	if (name == NULL)
+		name = "";
 
-	if (i == 0)
-		return (NULL);
+	h = ctf_strhash_compute(name);
 
-	return (&hp->h_chains[i]);
+	for (i = hp->h_buckets[h % hp->h_nbuckets]; i != 0;
+	    i = hp->h_chains[i].h_next) {
+		ctf_strhash_elem_t *hep = &hp->h_chains[i];
+
+		if (hep->h_hash == h && strcmp(hep->h_name, name) == 0)
+			return (hep);
+	}
+
+	return (NULL);
 }
 
 ctf_strhash_elem_t *
 ctf_strhash_next(ctf_strhash_t *hp, ctf_strhash_elem_t *elem)
 {
-	if (elem->h_next == 0)
-		return (NULL);
+	uint_t i;
 
-	return (&hp->h_chains[elem->h_next]);
+	for (i = elem->h_next; i != 0; i = hp->h_chains[i].h_next) {
+		ctf_strhash_elem_t *hep = &hp->h_chains[i];
+
+		if (hep->h_hash == elem->h_hash &&
+		    strcmp(hep->h_name, elem->h_name) == 0)
+			return (hep);
+	}
+
+	return (NULL);
 }

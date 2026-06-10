@@ -2974,8 +2974,6 @@ ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
 		for (elem = ctf_strhash_lookup(&hash->dsh_hash,
 		    cdf->cdf_name); elem != NULL;
 		    elem = ctf_strhash_next(&hash->dsh_hash, elem)) {
-			if (strcmp(elem->h_name, cdf->cdf_name) != 0)
-				continue;
 			ent = (ctf_dwarf_symentry_t *)elem->h_value;
 			if (ent->dse_type != STT_FUNC)
 				continue;
@@ -3016,8 +3014,6 @@ ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
 		for (elem = ctf_strhash_lookup(&hash->dsh_hash,
 		    cdv->cdv_name); elem != NULL;
 		    elem = ctf_strhash_next(&hash->dsh_hash, elem)) {
-			if (strcmp(elem->h_name, cdv->cdv_name) != 0)
-				continue;
 			ent = (ctf_dwarf_symentry_t *)elem->h_value;
 			if (ent->dse_type != STT_OBJECT)
 				continue;

@@ -91,6 +91,7 @@ typedef struct ctf_hash {
 typedef struct ctf_strhash_elem {
 	const char	*h_name;	/* key string (not copied) */
 	void		*h_value;	/* associated value */
+	ulong_t		h_hash;		/* hash of key string */
 	uint_t		h_next;		/* index of next element in chain */
 } ctf_strhash_elem_t;
 

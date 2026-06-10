@@ -1485,8 +1485,6 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 			boolean_t is_fuzzy = B_FALSE;
 
 			cmo = elem->h_value;
-			if (strcmp(cmo->cmo_name, name) != 0)
-				continue;
 			if (ctf_merge_symbol_match(cmo->cmo_file, cmo->cmo_name,
 			    &cmo->cmo_sym, file, name, symp, &is_fuzzy)) {
 				if (is_fuzzy && csa->cmsa_dedup &&
@@ -1527,8 +1525,6 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 			boolean_t is_fuzzy = B_FALSE;
 
 			cmf = elem->h_value;
-			if (strcmp(cmf->cmf_name, name) != 0)
-				continue;
 			if (ctf_merge_symbol_match(cmf->cmf_file, cmf->cmf_name,
 			    &cmf->cmf_sym, file, name, symp, &is_fuzzy)) {
 				if (is_fuzzy && csa->cmsa_dedup &&

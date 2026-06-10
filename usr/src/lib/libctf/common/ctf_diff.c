@@ -696,11 +696,11 @@ ctf_diff_try_candidate(ctf_diff_t *cds, ctf_id_t i, ctf_id_t j,
 }
 
 /*
- * Iterate over hash chain candidates for source type i, filtering by kind
+ * Iterate over same-named candidates for source type i, filtering by kind
  * and member count (vlen) using pre-cached arrays for O(1) lookup.  The vlen
- * filter is effective for anonymous types which all share the empty-string
- * hash bucket: two anonymous structs with different member counts cannot be
- * structurally equal and are rejected without recursive comparison.
+ * filter is effective for anonymous types, which all share the empty name:
+ * two anonymous structs with different member counts cannot be structurally
+ * equal and are rejected without recursive comparison.
  *
  * Pass ivlen == (uint_t)-1 to disable the vlen filter (used for cross-kind
  * forward declaration matching where vlen is meaningless).
@@ -730,8 +730,6 @@ ctf_diff_check_chain(ctf_diff_t *cds, ctf_strhash_t *hp,
 		}
 		if (!(cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) &&
 		    cds->cds_reverse[TINDEX(j)] != 0)
-			continue;
-		if (strcmp(name, elem->h_name) != 0)
 			continue;
 
 		ret = ctf_diff_try_candidate(cds, i, j, matchid);
