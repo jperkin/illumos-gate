@@ -91,7 +91,7 @@ typedef struct ctf_hash {
 typedef struct ctf_strhash_elem {
 	const char	*h_name;	/* key string (not copied) */
 	void		*h_value;	/* associated value */
-	ulong_t		h_hash;		/* hash of key string */
+	uint_t		h_hash;		/* hash of key string and salt */
 	uint_t		h_next;		/* index of next element in chain */
 } ctf_strhash_elem_t;
 
@@ -317,8 +317,9 @@ extern void ctf_hash_dump(const char *, ctf_hash_t *, ctf_file_t *);
 
 extern int ctf_strhash_create(ctf_strhash_t *, ulong_t);
 extern void ctf_strhash_destroy(ctf_strhash_t *);
-extern int ctf_strhash_insert(ctf_strhash_t *, const char *, void *);
-extern ctf_strhash_elem_t *ctf_strhash_lookup(ctf_strhash_t *, const char *);
+extern int ctf_strhash_insert(ctf_strhash_t *, const char *, uint_t, void *);
+extern ctf_strhash_elem_t *ctf_strhash_lookup(ctf_strhash_t *, const char *,
+    uint_t);
 extern ctf_strhash_elem_t *ctf_strhash_next(ctf_strhash_t *,
     ctf_strhash_elem_t *);
 

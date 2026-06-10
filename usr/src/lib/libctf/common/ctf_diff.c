@@ -716,7 +716,7 @@ ctf_diff_check_chain(ctf_diff_t *cds, ctf_strhash_t *hp,
 	ctf_strhash_elem_t *elem;
 	int ret;
 
-	for (elem = ctf_strhash_lookup(hp, name); elem != NULL;
+	for (elem = ctf_strhash_lookup(hp, name, 0); elem != NULL;
 	    elem = ctf_strhash_next(hp, elem)) {
 		ctf_id_t j = (ctf_id_t)(uintptr_t)elem->h_value;
 
@@ -825,7 +825,7 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 			    &jkind, &jvlen, &jname);
 			kindcache[j - jstart] = (uint8_t)jkind;
 			vlencache[j - jstart] = jvlen;
-			(void) ctf_strhash_insert(&th, jname,
+			(void) ctf_strhash_insert(&th, jname, 0,
 			    (void *)(uintptr_t)j);
 		}
 	}
@@ -926,7 +926,7 @@ ctf_diff_pass1(ctf_diff_t *cds, boolean_t self)
 		 * subsequent types can find earlier ones.
 		 */
 		if (self == B_TRUE) {
-			(void) ctf_strhash_insert(&th, iname,
+			(void) ctf_strhash_insert(&th, iname, 0,
 			    (void *)(uintptr_t)i);
 			kindcache[i - istart] = (uint8_t)ikind;
 			vlencache[i - istart] = ivlen;

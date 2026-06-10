@@ -2807,7 +2807,7 @@ ctf_dwarf_symhash_build_cb(const Elf64_Sym *symp, ulong_t idx,
 	ent->dse_type = GELF_ST_TYPE(symp->st_info);
 	ent->dse_primary = primary;
 
-	(void) ctf_strhash_insert(&hash->dsh_hash, name, ent);
+	(void) ctf_strhash_insert(&hash->dsh_hash, name, 0, ent);
 
 	return (0);
 }
@@ -2884,7 +2884,7 @@ ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
 	for (cdf = ctf_list_next(&cup->cu_funcs); cdf != NULL;
 	    cdf = ctf_list_next(cdf)) {
 		for (elem = ctf_strhash_lookup(&hash->dsh_hash,
-		    cdf->cdf_name); elem != NULL;
+		    cdf->cdf_name, 0); elem != NULL;
 		    elem = ctf_strhash_next(&hash->dsh_hash, elem)) {
 			boolean_t is_fuzzy = B_FALSE;
 
@@ -2913,7 +2913,7 @@ ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
 	for (cdv = ctf_list_next(&cup->cu_vars); cdv != NULL;
 	    cdv = ctf_list_next(cdv)) {
 		for (elem = ctf_strhash_lookup(&hash->dsh_hash,
-		    cdv->cdv_name); elem != NULL;
+		    cdv->cdv_name, 0); elem != NULL;
 		    elem = ctf_strhash_next(&hash->dsh_hash, elem)) {
 			boolean_t is_fuzzy = B_FALSE;
 

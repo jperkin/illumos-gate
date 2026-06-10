@@ -223,6 +223,14 @@ ctf_hash_dump(const char *tag, ctf_hash_t *hp, ctf_file_t *fp)
  * the same name).  ctf_strhash_lookup() returns the first element whose key
  * matches the given name, and ctf_strhash_next() the subsequent ones; both
  * filter the hash chain by key, so callers see only matching entries.
+ *
+ * A key consists of a name and a caller-provided salt, which is folded into
+ * the stored hash.  The salt partitions same-named entries (the type diff
+ * salts with the type kind, so that the many anonymous types of each kind
+ * chain separately); callers with no use for it pass 0.  Two keys whose
+ * names match but whose salts differ compare equal only in the unlikely
+ * event of a hash collision, so a caller using salts must be prepared to
+ * reject such entries by checking the salted property itself.
  */
 int
 ctf_strhash_create(ctf_strhash_t *hp, ulong_t nelems)
@@ -271,24 +279,28 @@ ctf_strhash_destroy(ctf_strhash_t *hp)
 	}
 }
 
-static ulong_t
-ctf_strhash_compute(const char *key)
+static uint_t
+ctf_strhash_compute(const char *key, uint_t salt)
 {
-	ulong_t h = 2166136261u;
+	uint_t h = 2166136261u;
 
 	for (; *key != '\0'; key++) {
-		h ^= (ulong_t)(uchar_t)*key;
+		h ^= (uchar_t)*key;
 		h *= 16777619u;
 	}
+
+	h ^= salt;
+	h *= 16777619u;
 
 	return (h);
 }
 
 int
-ctf_strhash_insert(ctf_strhash_t *hp, const char *name, void *value)
+ctf_strhash_insert(ctf_strhash_t *hp, const char *name, uint_t salt,
+    void *value)
 {
 	ctf_strhash_elem_t *hep;
-	ulong_t h;
+	uint_t h;
 
 	if (hp->h_free >= hp->h_nelems)
 		return (EOVERFLOW);
@@ -299,7 +311,7 @@ ctf_strhash_insert(ctf_strhash_t *hp, const char *name, void *value)
 	hep = &hp->h_chains[hp->h_free];
 	hep->h_name = name;
 	hep->h_value = value;
-	hep->h_hash = ctf_strhash_compute(name);
+	hep->h_hash = ctf_strhash_compute(name, salt);
 
 	h = hep->h_hash % hp->h_nbuckets;
 	hep->h_next = hp->h_buckets[h];
@@ -308,11 +320,15 @@ ctf_strhash_insert(ctf_strhash_t *hp, const char *name, void *value)
 	return (0);
 }
 
+/*
+ * Names within one container commonly share storage in its string table, so
+ * key matching compares hashes and name pointers before falling back to
+ * strcmp.
+ */
 ctf_strhash_elem_t *
-ctf_strhash_lookup(ctf_strhash_t *hp, const char *name)
+ctf_strhash_lookup(ctf_strhash_t *hp, const char *name, uint_t salt)
 {
-	ulong_t h;
-	uint_t i;
+	uint_t h, i;
 
 	if (hp->h_buckets == NULL)
 		return (NULL);
@@ -320,13 +336,14 @@ ctf_strhash_lookup(ctf_strhash_t *hp, const char *name)
 	if (name == NULL)
 		name = "";
 
-	h = ctf_strhash_compute(name);
+	h = ctf_strhash_compute(name, salt);
 
 	for (i = hp->h_buckets[h % hp->h_nbuckets]; i != 0;
 	    i = hp->h_chains[i].h_next) {
 		ctf_strhash_elem_t *hep = &hp->h_chains[i];
 
-		if (hep->h_hash == h && strcmp(hep->h_name, name) == 0)
+		if (hep->h_hash == h && (hep->h_name == name ||
+		    strcmp(hep->h_name, name) == 0))
 			return (hep);
 	}
 
@@ -342,7 +359,8 @@ ctf_strhash_next(ctf_strhash_t *hp, ctf_strhash_elem_t *elem)
 		ctf_strhash_elem_t *hep = &hp->h_chains[i];
 
 		if (hep->h_hash == elem->h_hash &&
-		    strcmp(hep->h_name, elem->h_name) == 0)
+		    (hep->h_name == elem->h_name ||
+		    strcmp(hep->h_name, elem->h_name) == 0))
 			return (hep);
 	}
 

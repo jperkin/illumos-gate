@@ -1527,10 +1527,10 @@ ctf_merge_symhash_create(ctf_merge_input_t *cmi, ctf_strhash_t *objhash,
 
 	for (cmo = list_head(&cmi->cmi_omap); cmo != NULL;
 	    cmo = list_next(&cmi->cmi_omap, cmo))
-		(void) ctf_strhash_insert(objhash, cmo->cmo_name, cmo);
+		(void) ctf_strhash_insert(objhash, cmo->cmo_name, 0, cmo);
 	for (cmf = list_head(&cmi->cmi_fmap); cmf != NULL;
 	    cmf = list_next(&cmi->cmi_fmap, cmf))
-		(void) ctf_strhash_insert(funchash, cmf->cmf_name, cmf);
+		(void) ctf_strhash_insert(funchash, cmf->cmf_name, 0, cmf);
 
 	return (0);
 }
@@ -1563,7 +1563,7 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 		ctf_merge_objmap_t *cmo, *match = NULL;
 		ctf_strhash_elem_t *elem;
 
-		for (elem = ctf_strhash_lookup(csa->cmsa_obj_hash, name);
+		for (elem = ctf_strhash_lookup(csa->cmsa_obj_hash, name, 0);
 		    elem != NULL;
 		    elem = ctf_strhash_next(csa->cmsa_obj_hash, elem)) {
 			boolean_t is_fuzzy = B_FALSE;
@@ -1596,7 +1596,7 @@ ctf_merge_symbols(const Elf64_Sym *symp, ulong_t idx, const char *file,
 		ctf_merge_funcmap_t *cmf, *match = NULL;
 		ctf_strhash_elem_t *elem;
 
-		for (elem = ctf_strhash_lookup(csa->cmsa_func_hash, name);
+		for (elem = ctf_strhash_lookup(csa->cmsa_func_hash, name, 0);
 		    elem != NULL;
 		    elem = ctf_strhash_next(csa->cmsa_func_hash, elem)) {
 			boolean_t is_fuzzy = B_FALSE;
