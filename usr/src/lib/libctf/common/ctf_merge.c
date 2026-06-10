@@ -1683,7 +1683,9 @@ ctf_merge_merge(ctf_merge_t *cmh, ctf_file_t **outp)
 
 	/*
 	 * The merge tree was built from ctf_create() containers that have no
-	 * symtab.  Attach one from the output fd before symbol matching.
+	 * symtab.  Attach one from the output fd before symbol matching.  If
+	 * the output has no symtab either, there is nothing to match against:
+	 * out->ctf_nsyms stays zero and the symbol merge below is a no-op.
 	 */
 	if (out->ctf_symtab.cts_data == NULL && cmh->cmh_msyms == B_TRUE) {
 		ctf_file_t *symtmpl;
@@ -1693,16 +1695,18 @@ ctf_merge_merge(ctf_merge_t *cmh, ctf_file_t **outp)
 			ctf_close(out);
 			return (err);
 		}
-		out->ctf_symtab = symtmpl->ctf_symtab;
-		out->ctf_strtab = symtmpl->ctf_strtab;
-		out->ctf_symtab.cts_name = _CTF_NULLSTR;
-		out->ctf_strtab.cts_name = _CTF_NULLSTR;
-		out->ctf_nsyms =
-		    symtmpl->ctf_symtab.cts_size /
-		    symtmpl->ctf_symtab.cts_entsize;
-		symtmpl->ctf_symtab.cts_data = NULL;
-		symtmpl->ctf_strtab.cts_data = NULL;
-		out->ctf_flags |= LCTF_MMAP;
+		if (symtmpl->ctf_symtab.cts_data != NULL) {
+			out->ctf_symtab = symtmpl->ctf_symtab;
+			out->ctf_strtab = symtmpl->ctf_strtab;
+			out->ctf_symtab.cts_name = _CTF_NULLSTR;
+			out->ctf_strtab.cts_name = _CTF_NULLSTR;
+			out->ctf_nsyms =
+			    symtmpl->ctf_symtab.cts_size /
+			    symtmpl->ctf_symtab.cts_entsize;
+			symtmpl->ctf_symtab.cts_data = NULL;
+			symtmpl->ctf_strtab.cts_data = NULL;
+			out->ctf_flags |= LCTF_MMAP;
+		}
 		ctf_close(symtmpl);
 	}
 
@@ -1902,16 +1906,18 @@ ctf_merge_dedup(ctf_merge_t *cmp, ctf_file_t **outp)
 			symtmpl = ctf_fdcreate(cmp->cmh_ofd, &ret);
 			if (symtmpl == NULL)
 				goto err;
-			cm.cm_out->ctf_symtab = symtmpl->ctf_symtab;
-			cm.cm_out->ctf_strtab = symtmpl->ctf_strtab;
-			cm.cm_out->ctf_symtab.cts_name = _CTF_NULLSTR;
-			cm.cm_out->ctf_strtab.cts_name = _CTF_NULLSTR;
-			cm.cm_out->ctf_nsyms =
-			    symtmpl->ctf_symtab.cts_size /
-			    symtmpl->ctf_symtab.cts_entsize;
-			symtmpl->ctf_symtab.cts_data = NULL;
-			symtmpl->ctf_strtab.cts_data = NULL;
-			cm.cm_out->ctf_flags |= LCTF_MMAP;
+			if (symtmpl->ctf_symtab.cts_data != NULL) {
+				cm.cm_out->ctf_symtab = symtmpl->ctf_symtab;
+				cm.cm_out->ctf_strtab = symtmpl->ctf_strtab;
+				cm.cm_out->ctf_symtab.cts_name = _CTF_NULLSTR;
+				cm.cm_out->ctf_strtab.cts_name = _CTF_NULLSTR;
+				cm.cm_out->ctf_nsyms =
+				    symtmpl->ctf_symtab.cts_size /
+				    symtmpl->ctf_symtab.cts_entsize;
+				symtmpl->ctf_symtab.cts_data = NULL;
+				symtmpl->ctf_strtab.cts_data = NULL;
+				cm.cm_out->ctf_flags |= LCTF_MMAP;
+			}
 			ctf_close(symtmpl);
 		}
 
