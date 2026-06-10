@@ -3777,7 +3777,7 @@ int
 ctf_dwarf_convert(ctf_convert_t *cch, int fd, Elf *elf, ctf_file_t **fpp,
     char *errbuf, size_t errlen)
 {
-	int err, ret;
+	int err, ret, oalloc;
 	uint_t ndies, i, bsize, nthrs;
 	Dwarf_Debug dw;
 	Dwarf_Error derr;
@@ -3827,6 +3827,16 @@ ctf_dwarf_convert(ctf_convert_t *cch, int fd, Elf *elf, ctf_file_t **fpp,
 	}
 
 	bzero(cdies, sizeof (ctf_cu_t) * ndies);
+
+	/*
+	 * libdwarf records every allocation in a per-Dwarf_Debug search tree
+	 * so that dwarf_finish() can free whatever the caller forgot, at a
+	 * substantial cost on allocation-heavy work like ours.  Disable the
+	 * tracking for the duration of the conversion: explicit
+	 * dwarf_dealloc() calls still free as usual, but anything we leak is
+	 * now held until the process exits rather than until dwarf_finish().
+	 */
+	oalloc = dwarf_set_de_alloc_flag(0);
 
 	if ((err = ctf_dwarf_preinit_dies(cch, fd, elf, dw, &dwlock, &derr,
 	    ndies, cdies, errbuf, errlen)) != 0) {
@@ -3888,6 +3898,7 @@ success:
 	ctf_dprintf("successfully converted!\n");
 
 out:
+	(void) dwarf_set_de_alloc_flag(oalloc);
 	(void) dwarf_finish(dw, &derr);
 	workq_fini(wqp);
 	ctf_free(cdies, sizeof (ctf_cu_t) * ndies);
