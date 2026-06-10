@@ -2860,6 +2860,12 @@ ctf_dwarf_symhash_free(ctf_dwarf_symhash_t *hash)
  * Match CU functions and variables against the symbol table using a pre-built
  * hash table keyed on symbol name, rather than walking the entire symbol table
  * for each CU.
+ *
+ * A fuzzy match maps the symbol only when it is the primary instance of its
+ * name.  A symbol may match more than one same-named entry, in which case
+ * ctf_add_function() or ctf_add_object() fails with ECTF_CONFLICT for all but
+ * the first; the first match wins, as it did when this code walked the
+ * symbol table instead.
  */
 static int
 ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
@@ -2868,9 +2874,7 @@ ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
 	ctf_dwfunc_t *cdf;
 	ctf_dwvar_t *cdv;
 	ctf_strhash_elem_t *elem;
-	ctf_dwarf_symentry_t *ent, *fuzzy;
-	boolean_t is_fuzzy;
-	int ret;
+	ctf_dwarf_symentry_t *ent;
 
 	if (hash == NULL) {
 		return (ctf_symtab_iter(cup->cu_ctfp,
@@ -2879,11 +2883,11 @@ ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
 
 	for (cdf = ctf_list_next(&cup->cu_funcs); cdf != NULL;
 	    cdf = ctf_list_next(cdf)) {
-		fuzzy = NULL;
-
 		for (elem = ctf_strhash_lookup(&hash->dsh_hash,
 		    cdf->cdf_name); elem != NULL;
 		    elem = ctf_strhash_next(&hash->dsh_hash, elem)) {
+			boolean_t is_fuzzy = B_FALSE;
+
 			ent = (ctf_dwarf_symentry_t *)elem->h_value;
 			if (ent->dse_type != STT_FUNC)
 				continue;
@@ -2891,39 +2895,28 @@ ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
 			    (ent->dse_file == NULL || cup->cu_name == NULL))
 				continue;
 
-			is_fuzzy = B_FALSE;
 			if (!ctf_dwarf_symbol_match(ent->dse_file,
 			    cdf->cdf_name, ent->dse_bind, cup->cu_name,
 			    cdf->cdf_name, cdf->cdf_global, &is_fuzzy))
 				continue;
 
-			if (is_fuzzy) {
-				if (ent->dse_primary)
-					fuzzy = ent;
+			if (is_fuzzy && !ent->dse_primary)
 				continue;
-			}
 
-			ret = ctf_add_function(cup->cu_ctfp,
-			    ent->dse_idx, &cdf->cdf_fip, cdf->cdf_argv);
-			if (ret == CTF_ERR)
-				return (ctf_errno(cup->cu_ctfp));
-		}
-
-		if (fuzzy != NULL) {
-			ret = ctf_add_function(cup->cu_ctfp,
-			    fuzzy->dse_idx, &cdf->cdf_fip, cdf->cdf_argv);
-			if (ret == CTF_ERR)
+			if (ctf_add_function(cup->cu_ctfp, ent->dse_idx,
+			    &cdf->cdf_fip, cdf->cdf_argv) == CTF_ERR &&
+			    ctf_errno(cup->cu_ctfp) != ECTF_CONFLICT)
 				return (ctf_errno(cup->cu_ctfp));
 		}
 	}
 
 	for (cdv = ctf_list_next(&cup->cu_vars); cdv != NULL;
 	    cdv = ctf_list_next(cdv)) {
-		fuzzy = NULL;
-
 		for (elem = ctf_strhash_lookup(&hash->dsh_hash,
 		    cdv->cdv_name); elem != NULL;
 		    elem = ctf_strhash_next(&hash->dsh_hash, elem)) {
+			boolean_t is_fuzzy = B_FALSE;
+
 			ent = (ctf_dwarf_symentry_t *)elem->h_value;
 			if (ent->dse_type != STT_OBJECT)
 				continue;
@@ -2931,28 +2924,17 @@ ctf_dwarf_conv_funcvars(ctf_cu_t *cup)
 			    (ent->dse_file == NULL || cup->cu_name == NULL))
 				continue;
 
-			is_fuzzy = B_FALSE;
 			if (!ctf_dwarf_symbol_match(ent->dse_file,
 			    cdv->cdv_name, ent->dse_bind, cup->cu_name,
 			    cdv->cdv_name, cdv->cdv_global, &is_fuzzy))
 				continue;
 
-			if (is_fuzzy) {
-				if (ent->dse_primary)
-					fuzzy = ent;
+			if (is_fuzzy && !ent->dse_primary)
 				continue;
-			}
 
-			ret = ctf_add_object(cup->cu_ctfp,
-			    ent->dse_idx, cdv->cdv_type);
-			if (ret == CTF_ERR)
-				return (ctf_errno(cup->cu_ctfp));
-		}
-
-		if (fuzzy != NULL) {
-			ret = ctf_add_object(cup->cu_ctfp,
-			    fuzzy->dse_idx, cdv->cdv_type);
-			if (ret == CTF_ERR)
+			if (ctf_add_object(cup->cu_ctfp, ent->dse_idx,
+			    cdv->cdv_type) == CTF_ERR &&
+			    ctf_errno(cup->cu_ctfp) != ECTF_CONFLICT)
 				return (ctf_errno(cup->cu_ctfp));
 		}
 	}
