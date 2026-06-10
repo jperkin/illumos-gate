@@ -791,11 +791,49 @@ ctf_update_nosyms(ctf_file_t *fp)
 	return (ret);
 }
 
+/*
+ * Grow the dynamic type hash so that the number of buckets keeps pace with
+ * the number of dynamic types, and rehash the existing definitions.  Growth
+ * is best-effort: on allocation failure the existing table remains in use.
+ */
+static void
+ctf_dtd_grow(ctf_file_t *fp)
+{
+	ulong_t hashlen = fp->ctf_dthashlen;
+	ctf_dtdef_t **hash;
+	ctf_dtdef_t *dtd;
+
+	while (hashlen < (ulong_t)fp->ctf_dtnextid)
+		hashlen <<= 1;
+	VERIFY(hashlen != fp->ctf_dthashlen);
+
+	hash = ctf_alloc(hashlen * sizeof (ctf_dtdef_t *));
+	if (hash == NULL)
+		return;
+	bzero(hash, hashlen * sizeof (ctf_dtdef_t *));
+
+	for (dtd = ctf_list_next(&fp->ctf_dtdefs); dtd != NULL;
+	    dtd = ctf_list_next(dtd)) {
+		ulong_t h = dtd->dtd_type & (hashlen - 1);
+
+		dtd->dtd_hash = hash[h];
+		hash[h] = dtd;
+	}
+
+	ctf_free(fp->ctf_dthash, fp->ctf_dthashlen * sizeof (ctf_dtdef_t *));
+	fp->ctf_dthash = hash;
+	fp->ctf_dthashlen = hashlen;
+}
+
 void
 ctf_dtd_insert(ctf_file_t *fp, ctf_dtdef_t *dtd)
 {
-	ulong_t h = dtd->dtd_type & (fp->ctf_dthashlen - 1);
+	ulong_t h;
 
+	if ((ulong_t)fp->ctf_dtnextid > fp->ctf_dthashlen)
+		ctf_dtd_grow(fp);
+
+	h = dtd->dtd_type & (fp->ctf_dthashlen - 1);
 	dtd->dtd_hash = fp->ctf_dthash[h];
 	fp->ctf_dthash[h] = dtd;
 	ctf_list_append(&fp->ctf_dtdefs, dtd);
