@@ -1450,6 +1450,38 @@ ctf_add_forward(ctf_file_t *fp, uint_t flag, const char *name, uint_t kind)
 	return (type);
 }
 
+/*
+ * Convert a forward declaration into a struct or union shell in place,
+ * preserving its type ID.  This is the promotion that ctf_add_struct() and
+ * ctf_add_union() perform when the name hash turns up a same-named forward,
+ * for callers that already know the forward's ID; the name hashes only cover
+ * serialized types, so a dynamic forward cannot be promoted by name.
+ */
+ctf_id_t
+ctf_convert_forward(ctf_file_t *fp, ctf_id_t type, uint_t kind, uint_t flag)
+{
+	ctf_dtdef_t *dtd = ctf_dtd_lookup(fp, type);
+
+	if (kind != CTF_K_STRUCT && kind != CTF_K_UNION)
+		return (ctf_set_errno(fp, EINVAL));
+
+	if (flag != CTF_ADD_NONROOT && flag != CTF_ADD_ROOT)
+		return (ctf_set_errno(fp, EINVAL));
+
+	if (!(fp->ctf_flags & LCTF_RDWR))
+		return (ctf_set_errno(fp, ECTF_RDONLY));
+
+	if (dtd == NULL ||
+	    CTF_INFO_KIND(dtd->dtd_data.ctt_info) != CTF_K_FORWARD)
+		return (ctf_set_errno(fp, ECTF_BADID));
+
+	dtd->dtd_data.ctt_info = CTF_TYPE_INFO(kind, flag, 0);
+	dtd->dtd_data.ctt_size = 0;
+	fp->ctf_flags |= LCTF_DIRTY;
+
+	return (type);
+}
+
 ctf_id_t
 ctf_add_typedef(ctf_file_t *fp, uint_t flag, const char *name, ctf_id_t ref)
 {

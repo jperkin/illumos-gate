@@ -54,6 +54,7 @@ typedef struct ctf_merge_types {
 	ctf_file_t *cm_out;		/* Output CTF file */
 	ctf_file_t *cm_src;		/* Input CTF file */
 	ctf_merge_tinfo_t *cm_tmap;	/* Type state information */
+	ulong_t cm_tmax;		/* Highest source type index */
 	boolean_t cm_dedup;		/* Are we doing a dedup? */
 	boolean_t cm_unique;		/* are we doing a uniquify? */
 } ctf_merge_types_t;
@@ -178,23 +179,42 @@ ctf_merge_diffcb(ctf_file_t *ifp, ctf_id_t iid, boolean_t same, ctf_file_t *ofp,
 	}
 }
 
+/*
+ * Resolve a source type's header, raw name, and root visibility.  The source
+ * may contain dynamic types, whose names live in their definitions.
+ */
+static const ctf_type_t *
+ctf_merge_src_info(ctf_merge_types_t *cmp, ctf_id_t id, const char **namep,
+    int *flagsp)
+{
+	ctf_file_t *fp = cmp->cm_src;
+	const ctf_type_t *tp;
+
+	if ((tp = ctf_lookup_by_id(&fp, id)) == NULL)
+		return (NULL);
+
+	if (namep != NULL)
+		*namep = ctf_type_rname(fp, tp, id);
+	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
+		*flagsp = CTF_ADD_ROOT;
+	else
+		*flagsp = CTF_ADD_NONROOT;
+
+	return (tp);
+}
+
 static int
 ctf_merge_add_number(ctf_merge_types_t *cmp, ctf_id_t id)
 {
 	int ret, flags;
-	const ctf_type_t *tp;
 	const char *name;
 	ctf_encoding_t en;
 
 	if (ctf_type_encoding(cmp->cm_src, id, &en) != 0)
 		return (CTF_ERR);
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, &name, &flags) == NULL)
+		return (CTF_ERR);
 
 	ret = ctf_add_encoded(cmp->cm_out, flags, name, &en,
 	    ctf_type_kind(cmp->cm_src, id));
@@ -211,17 +231,13 @@ static int
 ctf_merge_add_array(ctf_merge_types_t *cmp, ctf_id_t id)
 {
 	int ret, flags;
-	const ctf_type_t *tp;
 	ctf_arinfo_t ar;
 
 	if (ctf_array_info(cmp->cm_src, id, &ar) == CTF_ERR)
 		return (CTF_ERR);
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, NULL, &flags) == NULL)
+		return (CTF_ERR);
 
 	if (cmp->cm_tmap[ar.ctr_contents].cmt_map == 0) {
 		ret = ctf_merge_add_type(cmp, ar.ctr_contents);
@@ -253,16 +269,11 @@ static int
 ctf_merge_add_reftype(ctf_merge_types_t *cmp, ctf_id_t id)
 {
 	int ret, flags;
-	const ctf_type_t *tp;
 	ctf_id_t reftype;
 	const char *name;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, &name, &flags) == NULL)
+		return (CTF_ERR);
 
 	reftype = ctf_type_reference(cmp->cm_src, id);
 	if (reftype == CTF_ERR)
@@ -290,16 +301,11 @@ static int
 ctf_merge_add_typedef(ctf_merge_types_t *cmp, ctf_id_t id)
 {
 	int ret, flags;
-	const ctf_type_t *tp;
 	const char *name;
 	ctf_id_t reftype;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, &name, &flags) == NULL)
+		return (CTF_ERR);
 
 	reftype = ctf_type_reference(cmp->cm_src, id);
 	if (reftype == CTF_ERR)
@@ -346,13 +352,10 @@ ctf_merge_add_enum(ctf_merge_types_t *cmp, ctf_id_t id)
 	ctf_merge_enum_t cme;
 	size_t size;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	tp = ctf_merge_src_info(cmp, id, &name, &flags);
+	if (tp == NULL)
+		return (CTF_ERR);
 
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
 	size = ctf_get_ctt_size(cmp->cm_src, tp, NULL, NULL);
 
 	enumid = ctf_add_enum(cmp->cm_out, flags, name, size);
@@ -375,15 +378,11 @@ static int
 ctf_merge_add_func(ctf_merge_types_t *cmp, ctf_id_t id)
 {
 	int ret, flags, i;
-	const ctf_type_t *tp;
 	ctf_funcinfo_t ctc;
 	ctf_id_t *argv;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, NULL, &flags) == NULL)
+		return (CTF_ERR);
 
 	if (ctf_func_info_by_id(cmp->cm_src, id, &ctc) == CTF_ERR)
 		return (ctf_set_errno(cmp->cm_out, ctf_errno(cmp->cm_src)));
@@ -429,15 +428,10 @@ static int
 ctf_merge_add_forward(ctf_merge_types_t *cmp, ctf_id_t id, uint_t kind)
 {
 	int ret, flags;
-	const ctf_type_t *tp;
 	const char *name;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, &name, &flags) == NULL)
+		return (CTF_ERR);
 
 	ret = ctf_add_forward(cmp->cm_out, flags, name, kind);
 	if (ret == CTF_ERR)
@@ -471,27 +465,31 @@ ctf_merge_add_member(const char *name, ctf_id_t type, ulong_t offset, void *arg)
  * During the first pass, we always add the generic structure and union but none
  * of its members as they might not all have been mapped yet. Instead we just
  * mark all structures and unions as needing to be fixed up.
+ *
+ * When the diff mapped a forward declaration in the output onto this source
+ * type, the mapping already names the output forward; promote it in place
+ * rather than relying on the output's name hashes, which only cover
+ * serialized types.
  */
 static int
 ctf_merge_add_sou(ctf_merge_types_t *cmp, ctf_id_t id, boolean_t forward)
 {
 	int flags, kind;
-	const ctf_type_t *tp;
 	const char *name;
 	ctf_id_t suid;
 
-	tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
-	name = ctf_strraw(cmp->cm_src, tp->ctt_name);
-	if (CTF_INFO_ISROOT(tp->ctt_info) != 0)
-		flags = CTF_ADD_ROOT;
-	else
-		flags = CTF_ADD_NONROOT;
+	if (ctf_merge_src_info(cmp, id, &name, &flags) == NULL)
+		return (CTF_ERR);
 	kind = ctf_type_kind(cmp->cm_src, id);
 
-	if (kind == CTF_K_STRUCT)
+	if (forward == B_TRUE) {
+		suid = ctf_convert_forward(cmp->cm_out,
+		    cmp->cm_tmap[id].cmt_map, kind, flags);
+	} else if (kind == CTF_K_STRUCT) {
 		suid = ctf_add_struct(cmp->cm_out, flags, name);
-	else
+	} else {
 		suid = ctf_add_union(cmp->cm_out, flags, name);
+	}
 
 	ctf_dprintf("added sou \"%s\" as (%d) %d->%d\n", name, kind, id, suid);
 
@@ -502,23 +500,6 @@ ctf_merge_add_sou(ctf_merge_types_t *cmp, ctf_id_t id, boolean_t forward)
 		VERIFY(cmp->cm_tmap[id].cmt_map == 0);
 		cmp->cm_tmap[id].cmt_map = suid;
 	} else {
-		/*
-		 * If this is a forward reference then its mapping should
-		 * already exist.
-		 */
-		if (cmp->cm_tmap[id].cmt_map != suid) {
-			ctf_dprintf(
-			    "mismatch sou \"%s\" as (%d) %d->%d (exp %d)\n",
-			    name, kind, id, suid, cmp->cm_tmap[id].cmt_map);
-			ctf_hash_dump("src structs",
-			    &cmp->cm_src->ctf_structs, cmp->cm_src);
-			ctf_hash_dump("src unions",
-			    &cmp->cm_src->ctf_unions, cmp->cm_src);
-			ctf_hash_dump("out structs",
-			    &cmp->cm_out->ctf_structs, cmp->cm_out);
-			ctf_hash_dump("out unions",
-			    &cmp->cm_out->ctf_unions, cmp->cm_out);
-		}
 		VERIFY(cmp->cm_tmap[id].cmt_map == suid);
 	}
 	cmp->cm_tmap[id].cmt_fixup = B_TRUE;
@@ -564,10 +545,12 @@ ctf_merge_add_type(ctf_merge_types_t *cmp, ctf_id_t id)
 		ret = ctf_merge_add_func(cmp, id);
 		break;
 	case CTF_K_FORWARD: {
+		ctf_file_t *sfp = cmp->cm_src;
 		const ctf_type_t *tp;
 		uint_t kind;
 
-		tp = LCTF_INDEX_TO_TYPEPTR(cmp->cm_src, id);
+		if ((tp = ctf_lookup_by_id(&sfp, id)) == NULL)
+			return (CTF_ERR);
 
 		/*
 		 * For forward declarations, ctt_type is the CTF_K_*
@@ -672,9 +655,9 @@ ctf_merge_fixup_type(ctf_merge_types_t *cmp, ctf_id_t id)
 static void
 ctf_merge_dedup_remap(ctf_merge_types_t *cmp)
 {
-	int i;
+	ulong_t i;
 
-	for (i = 1; i < cmp->cm_src->ctf_typemax + 1; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		ctf_id_t tid;
 
 		if (cmp->cm_tmap[i].cmt_missing == B_TRUE) {
@@ -714,15 +697,16 @@ ctf_merge_dedup_remap(ctf_merge_types_t *cmp)
 static int
 ctf_merge_common(ctf_merge_types_t *cmp)
 {
-	int ret, i;
+	ulong_t i;
+	int ret;
 
 	ctf_phase_dump(cmp->cm_src, "merge-common-src", NULL);
 	ctf_phase_dump(cmp->cm_out, "merge-common-dest", NULL);
 
 	/* Pass 1 */
-	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		if (cmp->cm_tmap[i].cmt_forward == B_TRUE) {
-			ctf_dprintf("Forward %d\n", i);
+			ctf_dprintf("Forward %lu\n", i);
 			ret = ctf_merge_add_sou(cmp, i, B_TRUE);
 			if (ret != 0) {
 				return (ret);
@@ -731,11 +715,11 @@ ctf_merge_common(ctf_merge_types_t *cmp)
 	}
 
 	/* Pass 2 */
-	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		if (cmp->cm_tmap[i].cmt_missing == B_TRUE) {
 			ret = ctf_merge_add_type(cmp, i);
 			if (ret != 0) {
-				ctf_dprintf("Failed to merge type %d\n", i);
+				ctf_dprintf("Failed to merge type %lu\n", i);
 				return (ret);
 			}
 		}
@@ -747,7 +731,7 @@ ctf_merge_common(ctf_merge_types_t *cmp)
 
 	ctf_dprintf("Beginning merge pass 3\n");
 	/* Pass 3 */
-	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		if (cmp->cm_tmap[i].cmt_fixup == B_TRUE) {
 			ret = ctf_merge_fixup_type(cmp, i);
 			if (ret != 0)
@@ -767,9 +751,10 @@ ctf_merge_common(ctf_merge_types_t *cmp)
 static int
 ctf_merge_uniquify_types(ctf_merge_types_t *cmp)
 {
-	int i, ret;
+	ulong_t i;
+	int ret;
 
-	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		if (cmp->cm_tmap[i].cmt_missing == B_FALSE)
 			continue;
 		ret = ctf_merge_add_type(cmp, i);
@@ -777,7 +762,7 @@ ctf_merge_uniquify_types(ctf_merge_types_t *cmp)
 			return (ret);
 	}
 
-	for (i = 1; i <= cmp->cm_src->ctf_typemax; i++) {
+	for (i = 1; i <= cmp->cm_tmax; i++) {
 		if (cmp->cm_tmap[i].cmt_fixup == B_FALSE)
 			continue;
 		ret = ctf_merge_fixup_type(cmp, i);
@@ -791,12 +776,13 @@ ctf_merge_uniquify_types(ctf_merge_types_t *cmp)
 static int
 ctf_merge_types_init(ctf_merge_types_t *cmp)
 {
+	cmp->cm_tmax = ctf_dyn_typemax(cmp->cm_src);
 	cmp->cm_tmap = ctf_alloc(sizeof (ctf_merge_tinfo_t) *
-	    (cmp->cm_src->ctf_typemax + 1));
+	    (cmp->cm_tmax + 1));
 	if (cmp->cm_tmap == NULL)
 		return (ctf_set_errno(cmp->cm_out, ENOMEM));
 	bzero(cmp->cm_tmap, sizeof (ctf_merge_tinfo_t) *
-	    (cmp->cm_src->ctf_typemax + 1));
+	    (cmp->cm_tmax + 1));
 	return (0);
 }
 
@@ -804,7 +790,7 @@ static void
 ctf_merge_types_fini(ctf_merge_types_t *cmp)
 {
 	ctf_free(cmp->cm_tmap, sizeof (ctf_merge_tinfo_t) *
-	    (cmp->cm_src->ctf_typemax + 1));
+	    (cmp->cm_tmax + 1));
 }
 
 /*
