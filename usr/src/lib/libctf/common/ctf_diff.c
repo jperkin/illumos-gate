@@ -603,63 +603,16 @@ ctf_diff_enum(ctf_file_t *ifp, const ctf_type_t *itp, ctf_id_t iid,
 }
 
 /*
- * Are two types equivalent?
+ * Dispatch a comparison of two types whose kinds are compatible and whose
+ * names have been settled by the caller.  Both the original containers
+ * (oifp, oofp) and those resolved by ctf_lookup_by_id() are required.
  */
-int
-ctf_diff_type(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
-    ctf_id_t oid)
+static int
+ctf_diff_type_dispatch(ctf_diff_t *cds, ctf_file_t *oifp, ctf_file_t *ifp,
+    const ctf_type_t *itp, ctf_id_t iid, ctf_file_t *oofp, ctf_file_t *ofp,
+    const ctf_type_t *otp, ctf_id_t oid, int ikind, int okind)
 {
-	int ret, ikind, okind;
-	ctf_file_t *oifp = ifp, *oofp = ofp;
-	const ctf_type_t *itp, *otp;
-	const char *iname, *oname;
-
-	/* Do a quick short circuit */
-	if (ifp == ofp && iid == oid)
-		return (B_FALSE);
-
-	/*
-	 * Check if it's something we've already encountered in a forward
-	 * reference or forward negative table. Also double check the reverse
-	 * table.
-	 */
-	if (cds->cds_forward[TINDEX(iid)] == oid)
-		return (B_FALSE);
-	if (cds->cds_forward[TINDEX(iid)] != 0)
-		return (B_TRUE);
-	if (cds->cds_reverse[TINDEX(oid)] == iid)
-		return (B_FALSE);
-	if ((cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) == 0 &&
-	    cds->cds_reverse[TINDEX(oid)] != 0)
-		return (B_TRUE);
-
-	/*
-	 * Look up both types once and extract kind and name inline,
-	 * avoiding separate ctf_type_kind and ctf_diff_name calls.
-	 */
-	if ((itp = ctf_lookup_by_id(&ifp, iid)) == NULL)
-		return (CTF_ERR);
-	if ((otp = ctf_lookup_by_id(&ofp, oid)) == NULL)
-		return (ctf_set_errno(oifp, ctf_errno(ofp)));
-
-	ikind = LCTF_INFO_KIND(ifp, itp->ctt_info);
-	okind = LCTF_INFO_KIND(ofp, otp->ctt_info);
-
-	if (ikind != okind &&
-	    ikind != CTF_K_FORWARD && okind != CTF_K_FORWARD)
-		return (B_TRUE);
-
-	/* Check names inline; anonymous types compare as the empty name. */
-	if ((iname = ctf_type_rname(ifp, itp, iid)) == NULL)
-		iname = "";
-	if ((oname = ctf_type_rname(ofp, otp, oid)) == NULL)
-		oname = "";
-
-	if (iname != oname && strcmp(iname, oname) != 0) {
-		if (ikind != okind || ikind != CTF_K_INTEGER ||
-		    (cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) == 0)
-			return (B_TRUE);
-	}
+	int ret;
 
 	/* Handle forward declarations inline */
 	if (ikind == CTF_K_FORWARD || okind == CTF_K_FORWARD) {
@@ -717,6 +670,110 @@ ctf_diff_type(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
 }
 
 /*
+ * Are two types equivalent?
+ */
+int
+ctf_diff_type(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid, ctf_file_t *ofp,
+    ctf_id_t oid)
+{
+	int ikind, okind;
+	ctf_file_t *oifp = ifp, *oofp = ofp;
+	const ctf_type_t *itp, *otp;
+	const char *iname, *oname;
+
+	/* Do a quick short circuit */
+	if (ifp == ofp && iid == oid)
+		return (B_FALSE);
+
+	/*
+	 * Check if it's something we've already encountered in a forward
+	 * reference or forward negative table. Also double check the reverse
+	 * table.
+	 */
+	if (cds->cds_forward[TINDEX(iid)] == oid)
+		return (B_FALSE);
+	if (cds->cds_forward[TINDEX(iid)] != 0)
+		return (B_TRUE);
+	if (cds->cds_reverse[TINDEX(oid)] == iid)
+		return (B_FALSE);
+	if ((cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) == 0 &&
+	    cds->cds_reverse[TINDEX(oid)] != 0)
+		return (B_TRUE);
+
+	/*
+	 * Look up both types once and extract kind and name inline,
+	 * avoiding separate ctf_type_kind and ctf_diff_name calls.
+	 */
+	if ((itp = ctf_lookup_by_id(&ifp, iid)) == NULL)
+		return (CTF_ERR);
+	if ((otp = ctf_lookup_by_id(&ofp, oid)) == NULL)
+		return (ctf_set_errno(oifp, ctf_errno(ofp)));
+
+	ikind = LCTF_INFO_KIND(ifp, itp->ctt_info);
+	okind = LCTF_INFO_KIND(ofp, otp->ctt_info);
+
+	if (ikind != okind &&
+	    ikind != CTF_K_FORWARD && okind != CTF_K_FORWARD)
+		return (B_TRUE);
+
+	/* Check names inline; anonymous types compare as the empty name. */
+	if ((iname = ctf_type_rname(ifp, itp, iid)) == NULL)
+		iname = "";
+	if ((oname = ctf_type_rname(ofp, otp, oid)) == NULL)
+		oname = "";
+
+	if (iname != oname && strcmp(iname, oname) != 0) {
+		if (ikind != okind || ikind != CTF_K_INTEGER ||
+		    (cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) == 0)
+			return (B_TRUE);
+	}
+
+	return (ctf_diff_type_dispatch(cds, oifp, ifp, itp, iid, oofp, ofp,
+	    otp, oid, ikind, okind));
+}
+
+/*
+ * Compare a candidate pair selected by ctf_diff_check_chain() or the
+ * IGNORE_INTNAMES fallback.  The candidate was found by name and kind, so
+ * the name comparison and kind compatibility check in ctf_diff_type() are
+ * already settled and skipped here; integers reached via the fallback are
+ * exempt from the name check by definition.
+ */
+static int
+ctf_diff_type_match(ctf_diff_t *cds, ctf_file_t *ifp, ctf_id_t iid,
+    ctf_file_t *ofp, ctf_id_t oid)
+{
+	int ikind, okind;
+	ctf_file_t *oifp = ifp, *oofp = ofp;
+	const ctf_type_t *itp, *otp;
+
+	/* Do a quick short circuit */
+	if (ifp == ofp && iid == oid)
+		return (B_FALSE);
+
+	if (cds->cds_forward[TINDEX(iid)] == oid)
+		return (B_FALSE);
+	if (cds->cds_forward[TINDEX(iid)] != 0)
+		return (B_TRUE);
+	if (cds->cds_reverse[TINDEX(oid)] == iid)
+		return (B_FALSE);
+	if ((cds->cds_flags & CTF_DIFF_F_IGNORE_INTNAMES) == 0 &&
+	    cds->cds_reverse[TINDEX(oid)] != 0)
+		return (B_TRUE);
+
+	if ((itp = ctf_lookup_by_id(&ifp, iid)) == NULL)
+		return (CTF_ERR);
+	if ((otp = ctf_lookup_by_id(&ofp, oid)) == NULL)
+		return (ctf_set_errno(oifp, ctf_errno(ofp)));
+
+	ikind = LCTF_INFO_KIND(ifp, itp->ctt_info);
+	okind = LCTF_INFO_KIND(ofp, otp->ctt_info);
+
+	return (ctf_diff_type_dispatch(cds, oifp, ifp, itp, iid, oofp, ofp,
+	    otp, oid, ikind, okind));
+}
+
+/*
  * Try a single candidate type j against source type i, handling guesses.
  * Returns B_FALSE on match, B_TRUE on mismatch, CTF_ERR on error.
  * On match, updates forward/reverse tables and sets *matchid = j.
@@ -729,7 +786,7 @@ ctf_diff_try_candidate(ctf_diff_t *cds, ctf_id_t i, ctf_id_t j,
 	ctf_diff_guess_t *cdg, *tofree;
 
 	ASSERT(cds->cds_guess == NULL);
-	diff = ctf_diff_type(cds, cds->cds_ifp, i, cds->cds_ofp, j);
+	diff = ctf_diff_type_match(cds, cds->cds_ifp, i, cds->cds_ofp, j);
 	if (diff == CTF_ERR)
 		return (CTF_ERR);
 
