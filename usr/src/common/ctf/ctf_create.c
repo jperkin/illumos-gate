@@ -1549,6 +1549,52 @@ ctf_add_enumerator(ctf_file_t *fp, ctf_id_t enid, const char *name, int value)
 }
 
 /*
+ * Fast-path enumerator addition for merging.  The caller provides the dtdef
+ * directly (avoiding a hash lookup per enumerator) and vouches for the input
+ * coming from a valid container, so the per-enumerator duplicate scan that
+ * makes ctf_add_enumerator() quadratic in the enumerator count is skipped.
+ */
+int
+ctf_add_enumerator_direct(ctf_file_t *fp, ctf_dtdef_t *dtd, const char *name,
+    int value)
+{
+	ctf_dmdef_t *dmd;
+	uint_t kind, vlen, root;
+	char *s;
+
+	kind = CTF_INFO_KIND(dtd->dtd_data.ctt_info);
+	root = CTF_INFO_ISROOT(dtd->dtd_data.ctt_info);
+	vlen = CTF_INFO_VLEN(dtd->dtd_data.ctt_info);
+
+	if (name == NULL)
+		return (ctf_set_errno(fp, EINVAL));
+
+	if (vlen == CTF_MAX_VLEN)
+		return (ctf_set_errno(fp, ECTF_DTFULL));
+
+	if ((dmd = ctf_alloc(sizeof (ctf_dmdef_t))) == NULL)
+		return (ctf_set_errno(fp, EAGAIN));
+
+	if ((s = ctf_strdup(name)) == NULL) {
+		ctf_free(dmd, sizeof (ctf_dmdef_t));
+		return (ctf_set_errno(fp, EAGAIN));
+	}
+
+	dmd->dmd_name = s;
+	dmd->dmd_type = CTF_ERR;
+	dmd->dmd_offset = 0;
+	dmd->dmd_value = value;
+
+	dtd->dtd_data.ctt_info = CTF_TYPE_INFO(kind, root, vlen + 1);
+	ctf_list_append(&dtd->dtd_u.dtu_members, dmd);
+
+	fp->ctf_dtstrlen += strlen(s) + 1;
+	fp->ctf_flags |= LCTF_DIRTY;
+
+	return (0);
+}
+
+/*
  * Fast-path member addition for DWARF conversion.  The caller provides the
  * dtdef directly (avoiding a hash lookup per member), and commits to setting
  * the struct/union size via ctf_set_size() after all members are added.

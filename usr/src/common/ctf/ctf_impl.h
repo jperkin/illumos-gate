@@ -339,6 +339,8 @@ extern ctf_dtdef_t *ctf_dtd_lookup(ctf_file_t *, ctf_id_t);
 
 extern int ctf_add_member_direct(ctf_file_t *, ctf_dtdef_t *, const char *,
     ctf_id_t, ulong_t);
+extern int ctf_add_enumerator_direct(ctf_file_t *, ctf_dtdef_t *,
+    const char *, int);
 
 extern void ctf_dsd_delete(ctf_file_t *, ctf_dsdef_t *);
 extern void ctf_dld_delete(ctf_file_t *, ctf_dldef_t *);

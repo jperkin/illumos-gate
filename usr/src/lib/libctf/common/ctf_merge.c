@@ -324,7 +324,7 @@ ctf_merge_add_typedef(ctf_merge_types_t *cmp, ctf_id_t id)
 
 typedef struct ctf_merge_enum {
 	ctf_file_t *cme_fp;
-	ctf_id_t cme_id;
+	ctf_dtdef_t *cme_dtd;
 } ctf_merge_enum_t;
 
 static int
@@ -332,8 +332,8 @@ ctf_merge_add_enumerator(const char *name, int value, void *arg)
 {
 	ctf_merge_enum_t *cmep = arg;
 
-	return (ctf_add_enumerator(cmep->cme_fp, cmep->cme_id, name, value) ==
-	    CTF_ERR);
+	return (ctf_add_enumerator_direct(cmep->cme_fp, cmep->cme_dtd, name,
+	    value) == CTF_ERR);
 }
 
 static int
@@ -360,7 +360,8 @@ ctf_merge_add_enum(ctf_merge_types_t *cmp, ctf_id_t id)
 		return (enumid);
 
 	cme.cme_fp = cmp->cm_out;
-	cme.cme_id = enumid;
+	cme.cme_dtd = ctf_dtd_lookup(cmp->cm_out, enumid);
+	VERIFY(cme.cme_dtd != NULL);
 	if (ctf_enum_iter(cmp->cm_src, id, ctf_merge_add_enumerator,
 	    &cme) != 0)
 		return (CTF_ERR);
