@@ -1,4 +1,5 @@
 /*
+ * Copyright 2026 Bar
  * Copyright 2014 Garrett D'Amore <garrett@damore.org>
  *
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
