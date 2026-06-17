@@ -1,0 +1,462 @@
+# Builds Triton's integration branches from illumos upstream plus a configured
+# list of feature branches.
+#
+# Scheduled runs rebuild the rolling integration branch:
+#   upstream/<UPSTREAM_REF> + TRITON_FEATURE_BRANCHES -> origin/<ROLLING_BRANCH>
+#
+# Manual runs create an immutable release branch:
+#   upstream/<UPSTREAM_REF> + TRITON_FEATURE_BRANCHES -> origin/<RELEASE_PREFIX>/<name>
+#
+# Operational notes:
+# - Feature branch order is significant. Put dependency branches first.
+# - Feature branches are cherry-picked onto upstream to keep the result linear.
+#   A branch containing merge commits fails fast with a clear error.
+# - Release branches are immutable unless overwrite_existing_release_branch is set.
+# - Git rerere can replay known conflict resolutions from RERERE_BRANCH. The
+#   cache is read by default when enabled, but is only written when explicitly
+#   requested for a successful non-dry-run manual workflow.
+# - A first-time conflict still fails. Resolve it in a controlled branch, seed
+#   RERERE_BRANCH, then future runs can replay that recorded resolution.
+# - Manual release runs do not replay cached rerere resolutions unless
+#   allow_rerere_replay is explicitly enabled for that run.
+name: Rebase next and create release branches
+
+on:
+  schedule:
+    # GitHub cron is UTC and best-effort; runs may be delayed under load.
+    - cron: "17 * * * *"
+  workflow_dispatch:
+    inputs:
+      release_name:
+        description: "Release branch suffix. Defaults to today's UTC date as YYYYMMDD."
+        required: false
+        type: string
+      overwrite_existing_release_branch:
+        description: "Replace an existing release branch using --force-with-lease."
+        required: false
+        default: false
+        type: boolean
+      dry_run:
+        description: "Validate and build locally, but do not push branch or tag."
+        required: false
+        default: false
+        type: boolean
+      update_rerere_cache:
+        description: "After a successful non-dry-run manual run, publish updated rerere conflict cache."
+        required: false
+        default: false
+        type: boolean
+      allow_rerere_replay:
+        description: "Allow cached rerere resolutions to be replayed on a manual release run."
+        required: false
+        default: false
+        type: boolean
+
+# This workflow writes branches and tags. Serializing runs avoids competing
+# pushes to the same integration refs and makes --force-with-lease meaningful.
+concurrency:
+  group: triton-rebase-and-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Edit these values for routine maintenance.
+  UPSTREAM_REPOSITORY: illumos/illumos-gate
+  UPSTREAM_REMOTE: upstream
+  UPSTREAM_REF: master
+  ROLLING_BRANCH: next
+  RELEASE_PREFIX: triton-release
+
+  # Persistent git rerere cache. Keep cache updates explicit so scheduled or
+  # ordinary release runs cannot teach new conflict resolutions accidentally.
+  RERERE_ENABLED: "true"
+  RERERE_BRANCH: triton-rerere-cache
+  RERERE_CACHE_PATH: rr-cache
+  RERERE_UPDATE_CACHE_ON_SUCCESS: "false"
+
+  # Feature branches on origin to stack onto upstream, in order. Branches are
+  # named exactly as they exist under refs/heads.
+  TRITON_FEATURE_BRANCHES: |
+    triton-feature/ctf-performance
+    triton-feature/merge-test-1
+    triton-feature/merge-test-2
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch origin and upstream
+        run: |
+          set -Eeuo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git remote get-url "$UPSTREAM_REMOTE" >/dev/null 2>&1; then
+            git remote add "$UPSTREAM_REMOTE" "https://github.com/${UPSTREAM_REPOSITORY}.git"
+          fi
+
+          git fetch --quiet "$UPSTREAM_REMOTE" \
+            "+refs/heads/${UPSTREAM_REF}:refs/remotes/${UPSTREAM_REMOTE}/${UPSTREAM_REF}"
+          git fetch --quiet origin '+refs/heads/*:refs/remotes/origin/*'
+          git fetch --quiet --tags origin
+
+      - name: Plan and validate inputs
+        id: plan
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_RELEASE_NAME: ${{ inputs.release_name || '' }}
+          INPUT_OVERWRITE_RELEASE: ${{ inputs.overwrite_existing_release_branch || false }}
+          INPUT_DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          set -Eeuo pipefail
+
+          error() { echo "::error::$*"; exit 1; }
+
+          # release_name is the only branch component that comes from user input.
+          validate_branch_name() {
+            local value="$1" label="$2"
+            [[ -n "$value" ]] || error "$label must not be empty"
+            [[ "$value" != -* ]] || error "$label must not start with '-'"
+            [[ "$value" != *[[:space:]]* ]] || error "$label must not contain whitespace"
+            git check-ref-format "refs/heads/$value" >/dev/null \
+              || error "$label is not a valid git branch name: $value"
+          }
+
+          [[ -n "${TRITON_FEATURE_BRANCHES//[[:space:]]/}" ]] || error "no feature branches configured"
+
+          base_ref="refs/remotes/${UPSTREAM_REMOTE}/${UPSTREAM_REF}"
+          base_sha="$(git rev-parse --verify "${base_ref}^{commit}")"
+
+          force_push=false
+          dry_run="$INPUT_DRY_RUN"
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            release_name="${INPUT_RELEASE_NAME:-}"
+            [[ -n "$release_name" ]] || release_name="$(date -u +%Y%m%d)"
+            validate_branch_name "$release_name" "release_name"
+            target_branch="${RELEASE_PREFIX}/${release_name}"
+
+            if [[ "$INPUT_OVERWRITE_RELEASE" == "true" ]]; then
+              force_push=true
+            elif git show-ref --verify --quiet "refs/remotes/origin/${target_branch}"; then
+              error "release branch already exists: origin/${target_branch}; use overwrite only when replacing it intentionally"
+            fi
+          else
+            target_branch="$ROLLING_BRANCH"
+            force_push=true
+            dry_run=false
+          fi
+
+          feature_shas=()
+          for feature in $TRITON_FEATURE_BRANCHES; do
+            remote_ref="refs/remotes/origin/${feature}"
+            feature_sha="$(git rev-parse --verify --quiet "${remote_ref}^{commit}")" \
+              || error "feature branch does not exist on origin: $feature"
+            git merge-base "$base_sha" "$remote_ref" >/dev/null \
+              || error "feature branch has no common history with ${UPSTREAM_REMOTE}/${UPSTREAM_REF}: $feature"
+            feature_shas+=("$feature_sha")
+          done
+
+          # A build's identity is the upstream base plus the ordered feature tips.
+          # Tagging on this digest makes rebuilds idempotent: unchanged scheduled
+          # runs reproduce the same commit, so the branch and tag pushes no-op.
+          build_key="$(printf '%s\n' "$base_sha" "${feature_shas[@]}" | sha256sum | cut -c1-12)"
+
+          {
+            echo "base_sha=$base_sha"
+            echo "target_branch=$target_branch"
+            echo "build_key=$build_key"
+            echo "force_push=$force_push"
+            echo "dry_run=$dry_run"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Configure rerere cache
+        id: rerere
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_UPDATE_RERERE_CACHE: ${{ inputs.update_rerere_cache || false }}
+          INPUT_ALLOW_RERERE_REPLAY: ${{ inputs.allow_rerere_replay || false }}
+        run: |
+          set -Eeuo pipefail
+
+          error() { echo "::error::$*"; exit 1; }
+
+          enabled="$RERERE_ENABLED"
+          update_cache=false
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$INPUT_ALLOW_RERERE_REPLAY" != "true" ]]; then
+            enabled=false
+            if [[ "$INPUT_UPDATE_RERERE_CACHE" == "true" || "$RERERE_UPDATE_CACHE_ON_SUCCESS" == "true" ]]; then
+              error "rerere cache updates require allow_rerere_replay=true on manual runs"
+            fi
+            echo "::notice::rerere replay is disabled for this manual run; set allow_rerere_replay=true to permit cached resolutions"
+          fi
+
+          if [[ "$enabled" == "true" ]]; then
+            echo "::warning::rerere replays cached resolutions without review; validate release branches before promotion"
+            git config rerere.enabled true
+            git config rerere.autoupdate true
+            mkdir -p .git/rr-cache
+
+            cache_ref="refs/remotes/origin/${RERERE_BRANCH}"
+            if git show-ref --verify --quiet "$cache_ref"; then
+              if git cat-file -e "${cache_ref}:${RERERE_CACHE_PATH}" 2>/dev/null; then
+                restore_dir="$RUNNER_TEMP/rerere-restore"
+                mkdir -p "$restore_dir"
+                git archive --format=tar "$cache_ref" "$RERERE_CACHE_PATH" | tar -x -C "$restore_dir"
+                cp -a "${restore_dir}/${RERERE_CACHE_PATH}/." .git/rr-cache/
+              else
+                echo "::warning::origin/${RERERE_BRANCH} exists but has no ${RERERE_CACHE_PATH}/ directory"
+              fi
+            else
+              echo "::notice::origin/${RERERE_BRANCH} does not exist yet; rerere will start with an empty cache"
+            fi
+
+            if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+              if [[ "$INPUT_UPDATE_RERERE_CACHE" == "true" || "$RERERE_UPDATE_CACHE_ON_SUCCESS" == "true" ]]; then
+                update_cache=true
+              fi
+            fi
+          fi
+
+          {
+            echo "enabled=$enabled"
+            echo "update_cache=$update_cache"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Stack feature branches
+        id: stack
+        env:
+          RERERE_ENABLED_FOR_RUN: ${{ steps.rerere.outputs.enabled }}
+        run: |
+          set -Eeuo pipefail
+
+          base_sha="${{ steps.plan.outputs.base_sha }}"
+          target_branch="${{ steps.plan.outputs.target_branch }}"
+          build_key="${{ steps.plan.outputs.build_key }}"
+
+          error() { echo "::error::$*"; exit 1; }
+
+          fail_conflict() {
+            local feature="$1"
+            echo "::group::git status"
+            git status --short
+            echo "::endgroup::"
+            error "$feature does not apply cleanly onto ${target_branch} at $(git rev-parse --short=12 HEAD)"
+          }
+
+          # Succeeds only if rerere fully resolved the conflict; otherwise the
+          # caller fails the run.
+          continue_after_rerere() {
+            local feature="$1"
+            [[ "$RERERE_ENABLED_FOR_RUN" == "true" ]] || return 1
+            git rerere status || true
+            ! git diff --name-only --diff-filter=U | grep -q . || return 1
+            echo "::notice::rerere resolved conflicts for ${feature}; continuing"
+            git cherry-pick --continue
+          }
+
+          git switch --force-create "$target_branch" "$base_sha"
+
+          for feature in $TRITON_FEATURE_BRANCHES; do
+            remote_ref="refs/remotes/origin/${feature}"
+            feature_sha="$(git rev-parse "${remote_ref}^{commit}")"
+            echo "::group::stack ${feature} (${feature_sha:0:12})"
+
+            mapfile -t merge_commits < <(git rev-list --merges --right-only HEAD..."$remote_ref")
+            if (( ${#merge_commits[@]} > 0 )); then
+              printf '%s\n' "${merge_commits[@]}"
+              error "$feature contains merge commits that cannot be linearized; flatten it"
+            fi
+
+            mapfile -t commits < <(
+              git rev-list --reverse --topo-order --right-only --cherry-pick --no-merges HEAD..."$remote_ref"
+            )
+            if (( ${#commits[@]} == 0 )); then
+              echo "::warning::$feature has no unique non-merge commits relative to the current stack"
+              echo "::endgroup::"
+              continue
+            fi
+
+            for commit in "${commits[@]}"; do
+              # Preserve the source commit's committer date so the rebuilt SHA is
+              # reproducible (cherry-pick already keeps the author date). Exported
+              # so a rerere "cherry-pick --continue" inherits the same date.
+              GIT_COMMITTER_DATE="$(git show -s --format=%cI "$commit")"
+              export GIT_COMMITTER_DATE
+              git cherry-pick -x --empty=drop "$commit" \
+                || { continue_after_rerere "$feature" || fail_conflict "$feature"; }
+            done
+            unset GIT_COMMITTER_DATE
+
+            echo "::endgroup::"
+          done
+
+          final_sha="$(git rev-parse HEAD)"
+          tag_name="${target_branch//\//-}-${build_key}"
+
+          if git show-ref --verify --quiet "refs/tags/${tag_name}"; then
+            tag_sha="$(git rev-parse "refs/tags/${tag_name}^{commit}")"
+            [[ "$tag_sha" == "$final_sha" ]] \
+              || error "tag ${tag_name} already exists and points at ${tag_sha:0:12}, not ${final_sha:0:12}"
+            tag_created=false
+          else
+            git tag -a "$tag_name" -m "Build ${target_branch} from ${base_sha:0:12}"
+            tag_created=true
+          fi
+
+          {
+            echo "final_sha=$final_sha"
+            echo "tag_name=$tag_name"
+            echo "tag_created=$tag_created"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish branch and tag
+        if: steps.plan.outputs.dry_run != 'true'
+        run: |
+          set -Eeuo pipefail
+
+          target_branch="${{ steps.plan.outputs.target_branch }}"
+          final_sha="${{ steps.stack.outputs.final_sha }}"
+          tag_name="${{ steps.stack.outputs.tag_name }}"
+          tag_created="${{ steps.stack.outputs.tag_created }}"
+          force_push="${{ steps.plan.outputs.force_push }}"
+          branch_needs_push=true
+          origin_sha=""
+
+          if git show-ref --verify --quiet "refs/remotes/origin/${target_branch}"; then
+            origin_sha="$(git rev-parse "refs/remotes/origin/${target_branch}^{commit}")"
+            if [[ "$origin_sha" == "$final_sha" ]]; then
+              echo "origin/${target_branch} already points at ${final_sha:0:12}; branch push skipped"
+              branch_needs_push=false
+            fi
+          fi
+
+          if [[ "$branch_needs_push" == "false" && "$tag_created" != "true" ]]; then
+            echo "nothing to publish"
+          elif [[ "$branch_needs_push" == "true" && "$tag_created" == "true" ]]; then
+            if [[ "$force_push" == "true" && -n "$origin_sha" ]]; then
+              git push --atomic --force-with-lease="refs/heads/${target_branch}:${origin_sha}" origin \
+                "HEAD:refs/heads/${target_branch}" \
+                "refs/tags/${tag_name}:refs/tags/${tag_name}"
+            else
+              git push --atomic origin \
+                "HEAD:refs/heads/${target_branch}" \
+                "refs/tags/${tag_name}:refs/tags/${tag_name}"
+            fi
+          elif [[ "$branch_needs_push" == "true" ]]; then
+            if [[ "$force_push" == "true" && -n "$origin_sha" ]]; then
+              git push --force-with-lease="refs/heads/${target_branch}:${origin_sha}" origin \
+                "HEAD:refs/heads/${target_branch}"
+            else
+              git push origin "HEAD:refs/heads/${target_branch}"
+            fi
+          elif [[ "$tag_created" == "true" ]]; then
+            git push origin "refs/tags/${tag_name}:refs/tags/${tag_name}"
+          fi
+
+      - name: Publish rerere cache
+        if: steps.rerere.outputs.enabled == 'true' && steps.rerere.outputs.update_cache == 'true' && steps.plan.outputs.dry_run != 'true'
+        run: |
+          set -Eeuo pipefail
+
+          if ! find .git/rr-cache -mindepth 1 -maxdepth 1 -print -quit | grep -q .; then
+            echo "::notice::rerere cache is empty; nothing to publish"
+            exit 0
+          fi
+
+          cache_ref="refs/remotes/origin/${RERERE_BRANCH}"
+          cache_root="$RUNNER_TEMP/rerere-cache-root"
+          index_file="$RUNNER_TEMP/rerere-cache.index"
+
+          if git show-ref --verify --quiet "$cache_ref"; then
+            expected_sha="$(git rev-parse "$cache_ref")"
+            push_mode=update
+          else
+            expected_sha=""
+            push_mode=create
+          fi
+
+          mkdir -p "${cache_root}/${RERERE_CACHE_PATH}"
+          cp -a .git/rr-cache/. "${cache_root}/${RERERE_CACHE_PATH}/"
+          rm -f "$index_file"
+
+          export GIT_INDEX_FILE="$index_file"
+          export GIT_WORK_TREE="$cache_root"
+
+          if [[ "$push_mode" == "update" ]]; then
+            git read-tree "${cache_ref}^{tree}"
+            old_tree="$(git rev-parse "${cache_ref}^{tree}")"
+          else
+            git read-tree --empty
+            old_tree=""
+          fi
+
+          git rm -r --cached --ignore-unmatch "$RERERE_CACHE_PATH" >/dev/null
+          git add -A "$RERERE_CACHE_PATH"
+          new_tree="$(git write-tree)"
+
+          if [[ "$new_tree" == "$old_tree" ]]; then
+            echo "rerere cache is unchanged"
+            exit 0
+          fi
+
+          parent_args=()
+          if [[ -n "$expected_sha" ]]; then
+            parent_args=(-p "$expected_sha")
+          fi
+
+          new_commit="$(
+            git commit-tree "$new_tree" "${parent_args[@]}" \
+              -m "Update rerere cache for release branch workflow"
+          )"
+
+          unset GIT_INDEX_FILE
+          unset GIT_WORK_TREE
+
+          if [[ "$push_mode" == "update" ]]; then
+            git push --force-with-lease="refs/heads/${RERERE_BRANCH}:${expected_sha}" origin \
+              "${new_commit}:refs/heads/${RERERE_BRANCH}"
+          else
+            git push origin "${new_commit}:refs/heads/${RERERE_BRANCH}"
+          fi
+
+      - name: Open or update failure issue
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          UPSTREAM_SHA: ${{ steps.plan.outputs.base_sha || 'unknown' }}
+          TARGET_BRANCH: ${{ steps.plan.outputs.target_branch || env.ROLLING_BRANCH }}
+        run: |
+          set -Eeuo pipefail
+
+          short="${UPSTREAM_SHA:0:12}"
+          title="Scheduled release branch workflow failed for upstream ${short}"
+          run_url="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          body="$(printf 'The scheduled workflow failed while building `%s`.\n\n- Upstream SHA: `%s`\n- Run: %s\n\nDeduplicated by upstream SHA.' \
+            "$TARGET_BRANCH" "$UPSTREAM_SHA" "$run_url")"
+
+          # Exact-title dedupe via the issues list endpoint, which is immediately
+          # consistent (the search API is not). jq is preinstalled on the runner.
+          existing="$(gh issue list --state open --limit 100 --json number,title \
+            | jq -r --arg t "$title" 'map(select(.title == $t)) | (.[0].number // empty)')"
+          if [[ -n "$existing" ]]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
