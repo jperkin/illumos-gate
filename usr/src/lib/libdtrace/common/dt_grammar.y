@@ -27,6 +27,7 @@
 /*
  * Copyright (c) 2014, 2016 by Delphix. All rights reserved.
  * Copyright (c) 2013, Joyent, Inc. All rights reserved.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <dt_impl.h>
@@ -173,6 +174,7 @@ extern int yylex(void);
 %type	<l_decl>	declarator
 %type	<l_decl>	direct_declarator
 %type	<l_decl>	pointer
+%type	<l_decl>	pointer_star
 %type	<l_decl>	type_qualifier_list
 %type	<l_decl>	type_name
 %type	<l_decl>	abstract_declarator
@@ -777,10 +779,13 @@ direct_declarator:
 lparen:		DT_TOK_LPAR { dt_decl_top()->dd_attr |= DT_DA_PAREN; }
 	;
 
-pointer:	DT_TOK_MUL { $$ = dt_decl_ptr(); }
-	|	DT_TOK_MUL type_qualifier_list { $$ = dt_decl_ptr(); }
-	|	DT_TOK_MUL pointer { $$ = dt_decl_ptr(); }
-	|	DT_TOK_MUL type_qualifier_list pointer { $$ = dt_decl_ptr(); }
+pointer:	pointer_star
+	|	pointer_star type_qualifier_list { $$ = $1; }
+	|	pointer_star pointer { $$ = $2; }
+	|	pointer_star type_qualifier_list pointer { $$ = $3; }
+	;
+
+pointer_star:	DT_TOK_MUL { $$ = dt_decl_ptr(); }
 	;
 
 type_qualifier_list:

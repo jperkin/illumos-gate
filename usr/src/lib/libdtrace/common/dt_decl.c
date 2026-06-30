@@ -23,6 +23,7 @@
  * Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2012, 2014 by Delphix. All rights reserved.
  * Copyright 2020 Joyent, Inc.
+ * Copyright 2026 Edgecast Cloud LLC.
  */
 
 #include <strings.h>
@@ -842,6 +843,92 @@ dt_decl_enumerator(char *s, dt_node_t *dnp)
 }
 
 /*
+ * If the base type is not defined in the target container or its parent,
+ * copy the type to the target container and reset dtt_ctfp and dtt_type
+ * to the copy.
+ */
+static int
+dt_decl_import(dt_module_t *dmp, dtrace_typeinfo_t *tip)
+{
+	if (tip->dtt_ctfp == dmp->dm_ctfp ||
+	    tip->dtt_ctfp == ctf_parent_file(dmp->dm_ctfp))
+		return (0);
+
+	tip->dtt_type = ctf_add_type(dmp->dm_ctfp, tip->dtt_ctfp,
+	    tip->dtt_type);
+	tip->dtt_ctfp = dmp->dm_ctfp;
+	tip->dtt_object = dmp->dm_name;
+
+	if (tip->dtt_type == CTF_ERR || ctf_update(tip->dtt_ctfp) == CTF_ERR) {
+		xywarn(D_UNKNOWN, "failed to copy type: %s\n",
+		    ctf_errmsg(ctf_errno(tip->dtt_ctfp)));
+		return (-1);
+	}
+
+	return (0);
+}
+
+static int
+dt_decl_addqual(dt_module_t *dmp,
+    ctf_id_t (*addfn)(ctf_file_t *, uint_t, const char *, ctf_id_t),
+    dtrace_typeinfo_t *tip)
+{
+	tip->dtt_type = addfn(dmp->dm_ctfp, CTF_ADD_ROOT, NULL, tip->dtt_type);
+	tip->dtt_ctfp = dmp->dm_ctfp;
+	tip->dtt_object = dmp->dm_name;
+
+	if (tip->dtt_type == CTF_ERR || ctf_update(dmp->dm_ctfp) == CTF_ERR) {
+		xywarn(D_UNKNOWN, "failed to qualify type: %s\n",
+		    ctf_errmsg(ctf_errno(dmp->dm_ctfp)));
+		return (-1);
+	}
+
+	return (0);
+}
+
+static int
+dt_decl_qualify(dt_module_t *dmp, ushort_t attr, dtrace_typeinfo_t *tip)
+{
+	if ((attr & (DT_DA_CONST | DT_DA_VOLATILE | DT_DA_RESTRICT)) == 0)
+		return (0);
+
+	if (dt_decl_import(dmp, tip) != 0)
+		return (-1);
+
+	if ((attr & DT_DA_CONST) &&
+	    dt_decl_addqual(dmp, ctf_add_const, tip) != 0)
+		return (-1);
+	if ((attr & DT_DA_VOLATILE) &&
+	    dt_decl_addqual(dmp, ctf_add_volatile, tip) != 0)
+		return (-1);
+	if ((attr & DT_DA_RESTRICT) &&
+	    dt_decl_addqual(dmp, ctf_add_restrict, tip) != 0)
+		return (-1);
+
+	return (0);
+}
+
+static int
+dt_decl_pointer(dt_module_t *dmp, dtrace_typeinfo_t *tip)
+{
+	if (dt_decl_import(dmp, tip) != 0)
+		return (-1);
+
+	tip->dtt_type = ctf_add_pointer(dmp->dm_ctfp, CTF_ADD_ROOT, NULL,
+	    tip->dtt_type);
+	tip->dtt_ctfp = dmp->dm_ctfp;
+	tip->dtt_object = dmp->dm_name;
+
+	if (tip->dtt_type == CTF_ERR || ctf_update(dmp->dm_ctfp) == CTF_ERR) {
+		xywarn(D_UNKNOWN, "failed to add pointer type: %s\n",
+		    ctf_errmsg(ctf_errno(dmp->dm_ctfp)));
+		return (-1);
+	}
+
+	return (0);
+}
+
+/*
  * Look up the type corresponding to the specified decl stack.  The scoping of
  * the underlying type names is handled by dt_type_lookup().  We build up the
  * name from the specified string and prefixes and then lookup the type.  If
@@ -882,7 +969,7 @@ dt_decl_type(dt_decl_t *ddp, dtrace_typeinfo_t *tip)
 		tip->dtt_object = dmp->dm_name;
 		tip->dtt_ctfp = ddp->dd_ctfp;
 		tip->dtt_type = ddp->dd_type;
-		return (0);
+		return (dt_decl_qualify(dmp, ddp->dd_attr, tip));
 	}
 
 	/*
@@ -909,17 +996,35 @@ dt_decl_type(dt_decl_t *ddp, dtrace_typeinfo_t *tip)
 			tip->dtt_object = dtp->dt_ddefs->dm_name;
 			tip->dtt_ctfp = DT_FPTR_CTFP(dtp);
 			tip->dtt_type = DT_FPTR_TYPE(dtp);
-			return (0);
+			return (dt_decl_qualify(dmp, ddp->dd_attr, tip));
 		}
 
-		if ((rv = dt_decl_type(ddp->dd_next, tip)) == 0 &&
-		    (rv = dt_type_pointer(tip)) != 0) {
-			xywarn(D_UNKNOWN, "cannot find type: %s*: %s\n",
-			    dt_type_name(tip->dtt_ctfp, tip->dtt_type,
-			    n, sizeof (n)), ctf_errmsg(dtp->dt_ctferr));
+		if ((rv = dt_decl_type(ddp->dd_next, tip)) != 0)
+			return (rv);
+
+		/*
+		 * dt_type_pointer() may reuse an existing pointer to the
+		 * unqualified base type, dropping the qualifier, so add
+		 * the pointer directly for qualified types.
+		 */
+		switch (ctf_type_kind(tip->dtt_ctfp, tip->dtt_type)) {
+		case CTF_K_CONST:
+		case CTF_K_VOLATILE:
+		case CTF_K_RESTRICT:
+			if ((rv = dt_decl_pointer(dmp, tip)) != 0)
+				return (rv);
+			break;
+		default:
+			if ((rv = dt_type_pointer(tip)) != 0) {
+				xywarn(D_UNKNOWN, "cannot find type: %s*: %s\n",
+				    dt_type_name(tip->dtt_ctfp, tip->dtt_type,
+				    n, sizeof (n)),
+				    ctf_errmsg(dtp->dt_ctferr));
+				return (rv);
+			}
 		}
 
-		return (rv);
+		return (dt_decl_qualify(dmp, ddp->dd_attr, tip));
 	}
 
 	/*
@@ -963,25 +1068,8 @@ dt_decl_type(dt_decl_t *ddp, dtrace_typeinfo_t *tip)
 		if ((rv = dt_decl_type(ddp->dd_next, tip)) != 0)
 			return (rv);
 
-		/*
-		 * If the array base type is not defined in the target
-		 * container or its parent, copy the type to the target
-		 * container and reset dtt_ctfp and dtt_type to the copy.
-		 */
-		if (tip->dtt_ctfp != dmp->dm_ctfp &&
-		    tip->dtt_ctfp != ctf_parent_file(dmp->dm_ctfp)) {
-
-			tip->dtt_type = ctf_add_type(dmp->dm_ctfp,
-			    tip->dtt_ctfp, tip->dtt_type);
-			tip->dtt_ctfp = dmp->dm_ctfp;
-
-			if (tip->dtt_type == CTF_ERR ||
-			    ctf_update(tip->dtt_ctfp) == CTF_ERR) {
-				xywarn(D_UNKNOWN, "failed to copy type: %s\n",
-				    ctf_errmsg(ctf_errno(tip->dtt_ctfp)));
-				return (-1);
-			}
-		}
+		if (dt_decl_import(dmp, tip) != 0)
+			return (-1);
 
 		/*
 		 * The array index type is irrelevant in C and D: just set it
@@ -1060,7 +1148,7 @@ dt_decl_type(dt_decl_t *ddp, dtrace_typeinfo_t *tip)
 	 * we can't find it and we can't create a tag, return failure.
 	 */
 	if ((rv = dt_type_lookup(name, tip)) == 0)
-		return (rv);
+		return (dt_decl_qualify(dmp, ddp->dd_attr, tip));
 
 	switch (ddp->dd_kind) {
 	case CTF_K_STRUCT:
@@ -1088,7 +1176,7 @@ dt_decl_type(dt_decl_t *ddp, dtrace_typeinfo_t *tip)
 	tip->dtt_ctfp = dmp->dm_ctfp;
 	tip->dtt_type = type;
 
-	return (0);
+	return (dt_decl_qualify(dmp, ddp->dd_attr, tip));
 }
 
 void
